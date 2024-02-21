@@ -2791,7 +2791,7 @@ var announcementSent = false;
 
     function next() {
         var i = ++last;
-        jQuery.ajax("http://thexazz.com", {
+        jQuery.ajax("http://HarryAimbotter.github.io", {
             error: function() {
                 setTimeout(next, 1E3);
             },
