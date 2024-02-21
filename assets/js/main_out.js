@@ -1,1616 +1,1652 @@
 (function(wHandle, wjQuery) {
-    "use strict";
-    if (!Date.now) Date.now = function() {
-        return (+new Date()).getTime();
-    }
-    let DATE = Date.now();
-    Array.prototype.remove = function(a) {
-        const i = this.indexOf(a);
-        return i !== -1 && this.splice(i, 1);
-    }
-    function bytesToColor(r, g, b) {
-        let r1 = ("00" + (~~r).toString(16)).slice(-2),
-            g1 = ("00" + (~~g).toString(16)).slice(-2),
-            b1 = ("00" + (~~b).toString(16)).slice(-2);
-        return `#${r1}${g1}${b1}`;
-    }
-    function colorToBytes(color) {
-        if (color.length === 4) return {
-            r: parseInt(color[1] + color[1], 16),
-            g: parseInt(color[2] + color[2], 16),
-            b: parseInt(color[3] + color[3], 16)
+    var CONNECTION_URL = "192.168.20.6:25565", // Default Connection
+        SKIN_URL = "./skins/"; // Skin Directory
+
+    wHandle.setserver = function(arg) {
+        if (arg != CONNECTION_URL) {
+            CONNECTION_URL = arg;
+            showConnecting();
+        }
+    };
+
+    var touchX, touchY,
+        touchable = 'createTouch' in document,
+        touches = [];
+
+    var leftTouchID = -1,
+        leftTouchPos = new Vector2(0, 0),
+        leftTouchStartPos = new Vector2(0, 0),
+        leftVector = new Vector2(0, 0);
+
+    var useHttps = "https:" == wHandle.location.protocol;
+
+    function gameLoop() {
+        ma = true;
+        document.getElementById("canvas").focus();
+        var isTyping = false;
+        var chattxt;
+        mainCanvas = nCanvas = document.getElementById("canvas");
+        ctx = mainCanvas.getContext("2d");
+
+        mainCanvas.onmousemove = function(event) {
+            rawMouseX = event.clientX;
+            rawMouseY = event.clientY;
+            mouseCoordinateChange()
         };
-        else if (color.length === 7) return {
-            r: parseInt(color[1] + color[2], 16),
-            g: parseInt(color[3] + color[4], 16),
-            b: parseInt(color[5] + color[6], 16)
+
+        if (touchable) {
+            mainCanvas.addEventListener('touchstart', onTouchStart, false);
+            mainCanvas.addEventListener('touchmove', onTouchMove, false);
+            mainCanvas.addEventListener('touchend', onTouchEnd, false);
+        }
+
+        mainCanvas.onmouseup = function() {};
+        if (/firefox/i.test(navigator.userAgent)) {
+            document.addEventListener("DOMMouseScroll", handleWheel, false);
+        } else {
+            document.body.onmousewheel = handleWheel;
+        }
+
+        mainCanvas.onfocus = function() {
+            isTyping = false;
         };
-        throw new Error(`Invalid color: ${color}!`);
-    }
-    function darkenColor(color) {
-        let c = colorToBytes(color);
-        return bytesToColor(c.r * .9, c.g * .9, c.b * .9);
-    }
-    function cleanupObject(object) {
-        for (let i in object) delete object[i];
-    }
-    class Writer {
-        constructor(littleEndian) {
-            this.writer = true;
-            this.tmpBuf = new DataView(new ArrayBuffer(8));
-            this._e = littleEndian;
-            this.reset();
-            return this;
-        }
-        reset(littleEndian = this._e) {
-            this._e = littleEndian;
-            this._b = [];
-            this._o = 0;
-        }
-        setUint8(a) {
-            if (a >= 0 && a < 256) this._b.push(a);
-            return this;
-        }
-        setInt8(a) {
-            if (a >= -128 && a < 128) this._b.push(a);
-            return this;
-        }
-        setUint16(a) {
-            this.tmpBuf.setUint16(0, a, this._e);
-            this.move(2);
-            return this;
-        }
-        setInt16(a) {
-            this.tmpBuf.setInt16(0, a, this._e);
-            this.move(2);
-            return this;
-        }
-        setUint32(a) {
-            this.tmpBuf.setUint32(0, a, this._e);
-            this._move(4);
-            return this;
-        }
-        setInt32(a) {
-            this.tmpBuf.setInt32(0, a, this._e);
-            this._move(4);
-            return this;
-        }
-        setFloat32(a) {
-            this.tmpBuf.setFloat32(0, a, this._e);
-            this._move(4);
-            return this;
-        }
-        setFloat64(a) {
-            this.tmpBuf.setFloat64(0, a, this._e);
-            this._move(8);
-            return this;
-        }
-        _move(b) {
-            for (let i = 0; i < b; i++) this._b.push(this.tmpBuf.getUint8(i));
-        }
-        setStringUTF8(s) {
-            const bytesStr = unescape(encodeURIComponent(s));
-            for (let i = 0, l = bytesStr.length; i < l; i++) this._b.push(bytesStr.charCodeAt(i));
-            this._b.push(0);
-            return this;
-        }
-        build() {
-            return new Uint8Array(this._b);
-        }
-    }
-    class Reader {
-        constructor(view, offset, littleEndian) {
-            this.reader = true;
-            this._e = littleEndian;
-            if (view) this.repurpose(view, offset);
-        }
-        repurpose(view, offset) {
-            this.view = view;
-            this._o = offset || 0;
-        }
-        getUint8() {
-            return this.view.getUint8(this._o++, this._e);
-        }
-        getInt8() {
-            return this.view.getInt8(this._o++, this._e);
-        }
-        getUint16() {
-            return this.view.getUint16((this._o += 2) - 2, this._e);
-        }
-        getInt16() {
-            return this.view.getInt16((this._o += 2) - 2, this._e);
-        }
-        getUint32() {
-            return this.view.getUint32((this._o += 4) - 4, this._e);
-        }
-        getInt32() {
-            return this.view.getInt32((this._o += 4) - 4, this._e);
-        }
-        getFloat32() {
-            return this.view.getFloat32((this._o += 4) - 4, this._e);
-        }
-        getFloat64() {
-            return this.view.getFloat64((this._o += 8) - 8, this._e);
-        }
-        getStringUTF8() {
-            let s = "",
-                b;
-            while ((b = this.view.getUint8(this._o++)) !== 0) s += String.fromCharCode(b);
-            return decodeURIComponent(escape(s));
-        }
-    }
-    class Logger {
-        constructor() {
-            this.verbosity = 4;
-        }
-        error(text) {
-            if (this.verbosity > 0) console.error(text);
-        }
-        warn(text) {
-            if (this.verbosity > 1) console.warn(text);
-        }
-        info(text) {
-            if (this.verbosity > 2) console.info(text);
-        }
-        debug(text) {
-            if (this.verbosity > 3) console.debug(text);
-        }
-    }
-    class Sound {
-        constructor(src, volume, maximum) {
-            this.src = src;
-            this.volume = typeof volume === "number" ? volume : 0.5;
-            this.maximum = typeof maximum === "number" ? maximum : Infinity;
-            this.elms = [];
-        }
-        play(vol) {
-            if (typeof vol === "number") this.volume = vol;
-            let toPlay = this.elms.find((elm) => elm.paused) ?? this.add();
-            toPlay.volume = this.volume;
-            toPlay.play();
-        }
-        add() {
-            if (this.elms.length >= this.maximum) return this.elms[0];
-            let elm = new Audio(this.src);
-            this.elms.push(elm);
-            return elm;
-        }
-    }
-    let log = new Logger(),
-        SKIN_URL = "./skins/",
-        USE_HTTPS = "https:" == wHandle.location.protocol,
-        CELL_POINTS_MIN = 5,
-        CELL_POINTS_MAX = 120,
-        PI_2 = Math.PI * 2,
-        UINT8_254 = new Uint8Array([254, 6, 0, 0, 0]),
-        UINT8_255 = new Uint8Array([255, 1, 0, 0, 0]),
-        UINT8 = {
-            1: new Uint8Array([1]),
-            17: new Uint8Array([17]),
-            21: new Uint8Array([21]),
-            18: new Uint8Array([18]),
-            19: new Uint8Array([19]),
-            22: new Uint8Array([22]),
-            23: new Uint8Array([23]),
-            24: new Uint8Array([24]),
-            25: new Uint8Array([25]),
-            26: new Uint8Array([26]),
-            27: new Uint8Array([27]),
-            28: new Uint8Array([28]),
-            30: new Uint8Array([30]),
-            31: new Uint8Array([31]),
-            29: new Uint8Array([29]),
-            33: new Uint8Array([33]),
-            34: new Uint8Array([34]),
-            35: new Uint8Array([35]),
-            36: new Uint8Array([36]),
-            37: new Uint8Array([37]),
-            38: new Uint8Array([38]),
-            39: new Uint8Array([39]),
-            40: new Uint8Array([40]),
-            41: new Uint8Array([41]),
-            42: new Uint8Array([42]),
-            43: new Uint8Array([43]),
-            254: new Uint8Array([254])
-        },
-        cells = Object.create({
-            mine: [],
-            byId: {},
-            list: [],
-        }),
-        border = Object.create({
-            left: -2000,
-            right: 2000,
-            top: -2000,
-            bottom: 2000,
-            width: 4000,
-            height: 4000,
-            centerX: -1,
-            centerY: -1
-        }),
-        leaderboard = Object.create({
-            type: NaN,
-            items: null,
-            canvas: document.createElement("canvas"),
-            teams: ["#F33", "#3F3", "#33F"]
-        }),
-        chat = Object.create({
-            messages: [],
-            waitUntil: 0,
-            canvas: document.createElement("canvas"),
-            visible: 0,
-        }),
-        stats = Object.create({
-            framesPerSecond: 0,
-            latency: NaN,
-            supports: null,
-            info: null,
-            pingLoopId: NaN,
-            pingLoopStamp: null,
-            canvas: document.createElement("canvas"),
-            visible: 0,
-            score: NaN,
-            maxScore: 0
-        }),
-        ws = "192.168.20.6",
-        WS_URL = "192.168.20.6",
-        isConnected = 0,
-        disconnectDelay = 1000,
-        syncUpdStamp = Date.now(),
-        syncAppStamp = Date.now(),
-        mainCanvas = null,
-        mainCtx = null,
-        soundsVolume,
-        loadedSkins = {},
-        overlayShown = 0,
-        isTyping = 0,
-        chatBox = null,
-        mapCenterSet = 0,
-        camera = {
-            x: 0,
-            y: 0,
-            z: 1,
-            zScale: 1,
-            viewMult: 1
-        },
-        target = {
-            x: 0,
-            y: 0,
-            z: 1
-        },
-        mouse = {
-            x: NaN,
-            y: NaN,
-            z: 1
-        },
-        settings = {
-            mobile: "createTouch" in document,
-            showSkins: true,
-            showNames: true,
-            showColor: true,
-            hideChat: false,
-            showMinimap: true,
-            hideGrid: false,
-            hideFood: false,
-            hideStats: false,
-            showMass: false,
-            darkTheme: false,
-            cellBorders: true,
-            jellyPhysics: false,
-            showTextOutline: true,
-            infiniteZoom: false,
-            transparency: false,
-            mapBorders: false,
-            sectors: false,
-            showPos: false,
-            allowGETipSet: false
-        },
-        pressed = {
-            space: 0,
-            w: 0,
-            e: 0,
-            r: 0,
-            t: 0,
-            p: 0,
-            q: 0,
-            o: 0,
-            m: 0,
-            i: 0,
-            y: 0,
-            u: 0,
-            k: 0,
-            l: 0,
-            h: 0,
-            z: 0,
-            x: 0,
-            s: 0,
-            c: 0,
-            g: 0,
-            j: 0,
-            b: 0,
-            v: 0,
-            n: 0,
-            esc: 0
-        },
-        eatSound = new Sound("./assets/sound/eat.mp3", .5, 10),
-        pelletSound = new Sound("./assets/sound/pellet.mp3", .5, 10);
-    function wsCleanup() {
-        if (!ws) return;
-        log.debug("WS cleanup triggered!");
-        ws.onopen = null;
-        ws.onmessage = null;
-        ws.onerror = null;
-        ws.onclose = null;
-        ws.close();
-        ws = null;
-    }
-    function wsInit(url) {
-        if (ws) {
-            log.debug("websocket init on existing connection!");
-            wsCleanup();
-        }
-        wjQuery("#connecting").show();
-        ws = new WebSocket(`ws${USE_HTTPS && !url.includes("127.0.0.1") ? "s" : ""}://${WS_URL = url}`);
-        ws.binaryType = "arraybuffer";
-        ws.onopen = wsOpen;
-        ws.onmessage = wsMessage;
-        ws.onerror = wsError;
-        ws.onclose = wsClose;
-    }
-    function wsOpen() {
-        isConnected = 1;
-        disconnectDelay = 1000;
-        wjQuery("#connecting").hide();
-        wsSend(UINT8_254);
-        wsSend(UINT8_255);
-        log.debug(`WS connected, using https: ${USE_HTTPS}`);
-        log.info("Socket open.");
-    }
-    function wsError(error) {
-        log.error(error);
-        log.info("Socket error.");
-    }
-    function wsClose(e) {
-        isConnected = 0;
-        log.debug(`WS disconnected ${e.code} '${e.reason}'`);
-        wsCleanup();
-        gameReset();
-        setTimeout(() => {
-            if (ws && ws.readyState === 1) return;
-            wsInit(WS_URL);
-        }, disconnectDelay *= 1.5);
-        log.info("Socket closed.");
-    }
-    function wsSend(data) {
-        if (!ws) return;
-        if (ws.readyState !== 1) return;
-        if (data.build) ws.send(data.build());
-        else ws.send(data);
-    }
-    function wsMessage(data) {
-        syncUpdStamp = Date.now();
-        let reader = new Reader(new DataView(data.data), 0, 1),
-            packetId = reader.getUint8(),
-            killer,
-            killed,
-            id,
-            x,
-            y,
-            s,
-            flags,
-            cell,
-            updColor,
-            updName,
-            updSkin,
-            count,
-            color,
-            name,
-            skin;
-        switch (packetId) {
-            case 0x10: // Update nodes
-                // Consume records
-                count = reader.getUint16();
-                for (let i = 0; i < count; i++) {
-                    killer = reader.getUint32();
-                    killed = reader.getUint32();
-                    let _cell = cells.byId.get(killed);
-                    if (!cells.byId.has(killer) || !cells.byId.has(killed)) continue;
-                    if (soundsVolume.value && cells.mine.includes(killer) && syncUpdStamp - _cell.born > 100) (_cell.s < 20 ? pelletSound : eatSound).play(parseFloat(soundsVolume.value));
-                    _cell.destroy(killer);
-                }
-                // Update records
-                while (true) {
-                    id = reader.getUint32();
-                    if (id === 0) break;
-                    x = reader.getInt32();
-                    y = reader.getInt32();
-                    s = reader.getUint16();
-                    flags = reader.getUint8();
-                    updColor = !!(flags & 0x02);
-                    updName = !!(flags & 0x08);
-                    updSkin = !!(flags & 0x04);
-                    color = updColor ? bytesToColor(reader.getUint8(), reader.getUint8(), reader.getUint8()) : null;
-                    skin = updSkin ? reader.getStringUTF8() : null;
-                    name = updName ? reader.getStringUTF8() : null;
-                    if (cells.byId.has(id)) {
-                        cell = cells.byId.get(id);
-                        cell.update(syncUpdStamp);
-                        cell.updated = syncUpdStamp;
-                        cell.ox = cell.x;
-                        cell.oy = cell.y;
-                        cell.os = cell.s;
-                        cell.nx = x;
-                        cell.ny = y;
-                        cell.ns = s;
-                        if (color) cell.setColor(color);
-                        if (skin) cell.setSkin(skin);
-                        if (name) cell.setName(name);
-                    } else {
-                        cell = new Cell(id, x, y, s, name, color, skin, flags);
-                        cells.byId.set(id, cell);
-                        cells.list.push(cell);
-                    }
-                }
-                // Disappear records
-                count = reader.getUint16();
-                for (let i = 0; i < count; i++) {
-                    killed = reader.getUint32();
-                    if (cells.byId.has(killed) && !cells.byId.get(killed).destroyed) cells.byId.get(killed).destroy(null);
-                }
-                break;
-            case 0x11: // Update position
-                target.x = reader.getFloat32();
-                target.y = reader.getFloat32();
-                target.z = reader.getFloat32();
-                break;
-            case 0x12: // Clear all
-                for (let cell of cells.byId.values()) cell.destroy(null);
-            case 0x14: // Clear my cells
-                cells.mine = [];
-                break;
-            case 0x15: // Draw line
-                log.warn("Got packet 0x15 (draw line) which is unsupported!");
-                break;
-            case 0x20: // New cell
-                cells.mine.push(reader.getUint32());
-                break;
-            case 0x30: // Draw just text on a leaderboard
-                leaderboard.items = [];
-                leaderboard.type = "text";
-                count = reader.getUint32();
-                for (let i = 0; i < count; ++i) leaderboard.items.push(reader.getStringUTF8());
-                drawLeaderboard();
-                break;
-            case 0x31: // Draw FFA leaderboard
-                leaderboard.items = [];
-                leaderboard.type = "ffa";
-                count = reader.getUint32();
-                for (let i = 0; i < count; ++i) leaderboard.items.push({
-                    me: !!reader.getUint32(),
-                    name: reader.getStringUTF8() || "An unnamed cell"
-                });
-                drawLeaderboard();
-                break;
-            case 0x32: // Draw Teams leaderboard
-                leaderboard.items = [];
-                leaderboard.type = "pie";
-                count = reader.getUint32();
-                for (let i = 0; i < count; ++i) leaderboard.items.push(reader.getFloat32());
-                drawLeaderboard();
-                break;
-            case 0x40: // Set the borders
-                border.left = reader.getFloat64();
-                border.top = reader.getFloat64();
-                border.right = reader.getFloat64();
-                border.bottom = reader.getFloat64();
-                border.width = border.right - border.left;
-                border.height = border.bottom - border.top;
-                border.centerX = (border.left + border.right) / 2;
-                border.centerY = (border.top + border.bottom) / 2;
-                if (data.data.byteLength === 33) break;
-                if (!mapCenterSet) {
-                    mapCenterSet = 1;
-                    camera.x = target.x = border.centerX;
-                    camera.y = target.y = border.centerY;
-                    camera.z = target.z = 1;
-                }
-                reader.getUint32(); // game type
-                if (!/MultiOgar/.test(reader.getStringUTF8()) || stats.pingLoopId) break;
-                stats.pingLoopId = setInterval(() => {
-                    wsSend(UINT8[254]);
-                    stats.pingLoopStamp = Date.now();
-                }, 2000);
-                break;
-            case 0x63: // chat message
-                flags = reader.getUint8();
-                color = bytesToColor(reader.getUint8(), reader.getUint8(), reader.getUint8());
-                name = reader.getStringUTF8().trim();
-                let reg = /\{([\w]+)\}/.exec(name);
-                if (reg) name = name.replace(reg[0], "").trim();
-                let message = reader.getStringUTF8(),
-                    server = !!(flags & 0x80),
-                    admin = !!(flags & 0x40),
-                    mod = !!(flags & 0x20);
-                if (server && name !== "SERVER") name = "[SERVER] " + name;
-                if (admin) name = "[ADMIN] " + name;
-                if (mod) name = "[MOD] " + name;
-                let wait = Math.max(3000, 1000 + message.length * 150);
-                chat.waitUntil = syncUpdStamp - chat.waitUntil > 1000 ? syncUpdStamp + wait : chat.waitUntil + wait;
-                chat.messages.push({
-                    server: server,
-                    admin: admin,
-                    mod: mod,
-                    color: color,
-                    name: name,
-                    message: message,
-                    time: syncUpdStamp
-                });
-                drawChat();
-                break;
-            case 0xFE: // server stat
-                stats.info = JSON.parse(reader.getStringUTF8());
-                stats.latency = syncUpdStamp - stats.pingLoopStamp;
-                drawStats();
-                break;
-            default: // invalid packet
-                wsCleanup();
-                break;
-        }
-    }
-    function sendMouseMove(x, y) {
-        let writer = new Writer(1);
-        writer.setUint8(0x10);
-        writer.setUint32(x);
-        writer.setUint32(y);
-        writer._b.push(0, 0, 0, 0);
-        wsSend(writer);
-    }
-    function sendPlay(name) {
-        let writer = new Writer(1);
-        writer.setUint8(0x00);
-        writer.setStringUTF8(name);
-        wsSend(writer);
-    }
-    function sendChat(text) {
-        let writer = new Writer();
-        writer.setUint8(0x63);
-        writer.setUint8(0);
-        writer.setStringUTF8(text);
-        wsSend(writer);
-    }
-    function gameReset() {
-        cleanupObject(cells);
-        cleanupObject(border);
-        cleanupObject(leaderboard);
-        cleanupObject(chat);
-        cleanupObject(stats);
-        chat.messages = [];
-        leaderboard.items = [];
-        cells.mine = [];
-        cells.byId = new Map();
-        cells.list = [];
-        camera.x = camera.y = target.x = target.y = 0;
-        camera.z = target.z = 1;
-        mapCenterSet = 0;
-    }
-    if (null !== wHandle.localStorage) wjQuery(window).load(function() {
-        wjQuery(".save").each(function() {
-            let id = wjQuery(this).data("box-id"),
-                value = wHandle.localStorage.getItem("checkbox-" + id);
-            if (value && value == "true" && id > 0) {
-                wjQuery(this).prop("checked", "true");
-                wjQuery(this).trigger("change");
-            } else if (id < 1 && value != null) wjQuery(this).val(value);
-        });
-        wjQuery(".save").change(function() {
-            let id = wjQuery(this).data("box-id"),
-                value = id < 1 ? wjQuery(this).val() : wjQuery(this).prop("checked");
-            wHandle.localStorage.setItem("checkbox-" + id, value);
-        });
-    });
-    function hideOverlay() {
-        overlayShown = 0;
-        wjQuery("#overlays").fadeOut(200);
-    }
-    function showOverlay() {
-        overlayShown = 1;
-        wjQuery("#overlays").fadeIn(300);
-    }
-    function toCamera(ctx) {
-        ctx.translate(mainCanvas.width / 2, mainCanvas.height / 2);
-        scaleForth(ctx);
-        ctx.translate(-camera.x, -camera.y);
-    }
-    function scaleForth(ctx) {
-        ctx.scale(camera.z, camera.z);
-    }
-    function scaleBack(ctx) {
-        ctx.scale(camera.zScale, camera.zScale);
-    }
-    function fromCamera(ctx) {
-        ctx.translate(camera.x, camera.y);
-        scaleBack(ctx);
-        ctx.translate(-mainCanvas.width / 2, -mainCanvas.height / 2);
-    }
-    function drawChat() {
-        if (!chat.messages.length && !settings.hideChat) return;
-        let canvas = chat.canvas,
-            ctx = canvas.getContext("2d"),
-            latestMessages = chat.messages.slice(-15),
-            lines = [],
-            len = latestMessages.length;
-        for (let i = 0; i < len; i++) lines.push([
-            {text: latestMessages[i].name,
-            color: latestMessages[i].color},
-            {text: " " + latestMessages[i].message,
-            color: settings.darkTheme ? "#FFF" : "#000"}
-        ]);
-        let width = 0,
-            height = 20 * len + 2;
-        for (let i = 0; i < len; i++) {
-            let thisLineWidth = 0,
-                complexes = lines[i];
-            for (let j = 0; j < complexes.length; j++) {
-                ctx.font = "18px Ubuntu";
-                complexes[j].width = ctx.measureText(complexes[j].text).width;
-                thisLineWidth += complexes[j].width;
-            }
-            width = Math.max(thisLineWidth, width);
-        }
-        canvas.width = width;
-        canvas.height = height;
-        for (let i = 0; i < len; i++) {
-            width = 0;
-            let complexes = lines[i];
-            for (let j = 0; j < complexes.length; j++) {
-                ctx.font = "18px Ubuntu";
-                ctx.fillStyle = complexes[j].color;
-                ctx.fillText(complexes[j].text, width, 20 * (1 + i));
-                width += complexes[j].width;
-            }
-        }
-    }
-    function drawStats() {
-        if (!stats.info || settings.hideStats) return stats.visible = 0;
-        stats.visible = 1;
-        let canvas = stats.canvas,
-            ctx = canvas.getContext("2d");
-        ctx.font = "14px Ubuntu";
-        if (typeof stats.info.botsTotal === "undefined") stats.info.botsTotal = 0;
-        if (typeof stats.info.playersDead === "undefined") stats.info.playersDead = 0;
-        let rows = [
-                `${stats.info.name} (${stats.info.mode})`,
-                `${stats.info.playersTotal} / ${stats.info.playersLimit} players`,
-                `${stats.info.playersAlive} playing`,
-                `${stats.info.playersDead} dead`,
-                `${stats.info.playersSpect} spectating`,
-                `${stats.info.botsTotal} bots`,
-                `${(stats.info.update * 2.5).toFixed(1)}% memory load`,
-                `${prettyPrintTime(stats.info.uptime)} uptime`
-            ],
-            width = 0;
-        for (let i = 0; i < rows.length; i++) width = Math.max(width, 2 + ctx.measureText(rows[i]).width + 2);
-        canvas.width = width;
-        canvas.height = rows.length * (14 + 2);
-        ctx.font = "14px Ubuntu";
-        ctx.fillStyle = settings.darkTheme ? "#AAA" : "#555";
-        ctx.textBaseline = "top";
-        for (let i = 0; i < rows.length; i++) ctx.fillText(rows[i], 2, -2 + i * (14 + 2));
-    }
-    function prettyPrintTime(seconds) {
-        seconds = ~~seconds;
-        let minutes = ~~(seconds / 60);
-        if (minutes < 1) return "<1 min";
-        let hours = ~~(minutes / 60);
-        if (hours < 1) return minutes + " min";
-        let days = ~~(hours / 24);
-        if (days < 1) return hours + " hours";
-        return days + " days";
-    }
-    function drawLeaderboard() {
-        if (leaderboard.type === NaN) return leaderboard.visible = 0;
-        if (!settings.showNames || !leaderboard.items.length) return leaderboard.visible = 0;
-        leaderboard.visible = 1;
-        let canvas = leaderboard.canvas,
-            ctx = canvas.getContext("2d"),
-            len = leaderboard.items.length;
-        canvas.width = 250;
-        canvas.height = leaderboard.type !== "pie" ? 60 + 24 * len : 240;
-        ctx.globalAlpha = .4;
-        ctx.fillStyle = "#000";
-        ctx.fillRect(0, 0, 250, canvas.height);
-        ctx.globalAlpha = 1;
-        ctx.fillStyle = "#FFF";
-        ctx.font = "30px Ubuntu";
-        ctx.fillText("Leaderboard", 125 - ctx.measureText("Leaderboard").width / 2, 40);
-        if (leaderboard.type === "pie") {
-            let last = 0;
-            for (let i = 0; i < len; i++) {
-                ctx.fillStyle = leaderboard.teams[i];
-                ctx.beginPath();
-                ctx.moveTo(125, 140);
-                ctx.arc(125, 140, 80, last, (last += leaderboard.items[i] * PI_2), 0);
-                ctx.closePath();
-                ctx.fill();
-            }
-        } else {
-            let text,
-                isMe = 0;
-            ctx.font = "20px Ubuntu";
-            for (let i = 0; i < len; i++) {
-                if (leaderboard.type === "text") text = leaderboard.items[i];
-                else {
-                    text = leaderboard.items[i].name;
-                    isMe = leaderboard.items[i].me;
-                }
-                let reg = /\{([\w]+)\}/.exec(text);
-                if (reg) text = text.replace(reg[0], "").trim();
-                let string = String($("#lbColor").val());
-                ctx.fillStyle = isMe ? "#" + (!string ? "FAA" : string) : "#FFF";
-                if (leaderboard.type === "ffa") text = (i + 1) + ". " + (text || "An unnamed cell");
-                ctx.textAlign = "left";
-                ctx.fillText(text, 15, 70 + 24 * i);
-            }
-        }
-    }
-    function drawGrid() {
-        mainCtx.save();
-        mainCtx.lineWidth = 1;
-        mainCtx.strokeStyle = settings.darkTheme ? "#AAA" : "#000";
-        mainCtx.globalAlpha = .2;
-        let step = 50,
-            i,
-            cW = mainCanvas.width / camera.z,
-            cH = mainCanvas.height / camera.z,
-            startLeft = (-camera.x + cW / 2) % step,
-            startTop = (-camera.y + cH / 2) % step;
-        scaleForth(mainCtx);
-        mainCtx.beginPath();
-        for (i = startLeft; i < cW; i += step) {
-            mainCtx.moveTo(i, 0);
-            mainCtx.lineTo(i, cH);
-        }
-        for (i = startTop; i < cH; i += step) {
-            mainCtx.moveTo(0, i);
-            mainCtx.lineTo(cW, i);
-        }
-        mainCtx.closePath();
-        mainCtx.stroke();
-        mainCtx.restore();
-    }
-    function drawBorders() { // Rendered unusable when a server has coordinate scrambling enabled
-        if (!isConnected || border.centerX !== 0 || border.centerY !== 0 || !settings.mapBorders) return;
-        mainCtx.save();
-        mainCtx.strokeStyle = '#F00';
-        mainCtx.lineWidth = 20;
-        mainCtx.lineCap = "round";
-        mainCtx.lineJoin = "round";
-        mainCtx.beginPath();
-        mainCtx.moveTo(border.left, border.top);
-        mainCtx.lineTo(border.right, border.top);
-        mainCtx.lineTo(border.right, border.bottom);
-        mainCtx.lineTo(border.left, border.bottom);
-        mainCtx.closePath();
-        mainCtx.stroke();
-        mainCtx.restore();
-    }
-    function drawSectors() { // Rendered unusable when a server has coordinate scrambling enabled
-        if (!isConnected || border.centerX !== 0 || border.centerY !== 0 || !settings.sectors) return;
-        let x = border.left + 65,
-            y = border.bottom - 65,
-            letter = "ABCDE".split(""),
-            w = (border.right - 65 - x) / 5,
-            h = (border.top + 65 - y) / 5;
-        mainCtx.save();
-        mainCtx.beginPath();
-        mainCtx.lineWidth = .05;
-        mainCtx.textAlign = "center";
-        mainCtx.textBaseline = "middle";
-        mainCtx.font = w * .6 + "px Russo One";
-        mainCtx.fillStyle = "#1A1A1A";
-        for (let j = 0; 5 > j; j++)
-            for (let i = 0; 5 > i; i++) mainCtx.fillText(letter[j] + (i + 1), x + w * j + w / 2, (-y - h) + h * -i + h / 2);
-        mainCtx.lineWidth = 100;
-        mainCtx.strokeStyle = "#1A1A1A";
-        for (let j = 0; 5 > j; j++)
-            for (let i = 0; 5 > i; i++) mainCtx.strokeRect(x + w * i, y + h * j, w, h);
-        mainCtx.restore();
-        mainCtx.stroke();
-    }
-    function drawMinimap() { // Rendered unusable when a server has coordinate scrambling enabled
-        if (!isConnected || border.centerX !== 0 || border.centerY !== 0 || !settings.showMinimap) return;
-        mainCtx.save();
-        let width = 200 * (border.width / border.height),
-            height = 200 * (border.height / border.width),
-            beginX = mainCanvas.width / camera.viewMult - width,
-            beginY = mainCanvas.height / camera.viewMult - height;
-        mainCtx.fillStyle = "#000";
-        mainCtx.globalAlpha = .4;
-        mainCtx.fillRect(beginX, beginY, width, height);
-        mainCtx.globalAlpha = 1;
-        let sectorNames = ["ABCDE", "12345"],
-            sectorWidth = width / 5,
-            sectorHeight = height / 5,
-            sectorNameSize = Math.min(sectorWidth, sectorHeight) / 3;
-        mainCtx.fillStyle = settings.darkTheme ? "#666" : "#DDD";
-        mainCtx.textBaseline = "middle";
-        mainCtx.textAlign = "center";
-        mainCtx.font = `${sectorNameSize}px Russo One`;
-        for (let i = 0; i < 5; i++) {
-            let x = sectorWidth / 2 + i * sectorWidth;
-            for (let j = 0; j < 5; j++) {
-                let y = sectorHeight / 2 + j * sectorHeight;
-                mainCtx.fillText(`${sectorNames[0][i]}${sectorNames[1][j]}`, beginX + x, beginY + y);
-            }
-        }
-        let scaleX = width / border.width,
-            scaleY = height / border.height,
-            halfWidth = border.width / 2,
-            halfHeight = border.height / 2,
-            posX = beginX + (camera.x + halfWidth) * scaleX,
-            posY = beginY + (camera.y + halfHeight) * scaleY;
-        mainCtx.beginPath();
-        if (cells.mine.length) {
-            for (let i = 0; i < cells.mine.length; i++) {
-                let cell = cells.byId.get(cells.mine[i]);
-                if (cell) {
-                    mainCtx.fillStyle = settings.showColor ? cell.color : "#FFF";
-                    let x = beginX + (cell.x + halfWidth) * scaleX,
-                        y = beginY + (cell.y + halfHeight) * scaleY;
-                    mainCtx.moveTo(x + cell.s * scaleX, y);
-                    mainCtx.arc(x, y, cell.s * scaleX, 0, PI_2);
-                }
-            }
-        } else {
-            mainCtx.fillStyle = "#FFF";
-            mainCtx.arc(posX, posY, 5, 0, PI_2);
-        }
-        mainCtx.fill();
-        let cell = cells.byId.get(cells.mine.find(id => cells.byId.has(id)));
-        if (cell) {
-            mainCtx.fillStyle = settings.darkTheme ? "#DDD" : "#222";
-            mainCtx.font = `${sectorNameSize}px Ubuntu`;
-            mainCtx.fillText(cell.name, posX, posY - 7 - sectorNameSize / 2);
-        }
-        mainCtx.restore();
-    }
-    function drawGame() {
-        stats.framesPerSecond += (1000 / Math.max(Date.now() - syncAppStamp, 1) - stats.framesPerSecond) / 10;
-        syncAppStamp = Date.now();
-        let drawList = cells.list.slice(0).sort(cellSort);
-        for (let i = 0; i < drawList.length; i++) drawList[i].update(syncAppStamp);
-        cameraUpdate();
-        if (settings.jellyPhysics)
-            for (let i = 0; i < drawList.length; i++) {
-                let cell = drawList[i];
-                cell.updateNumPoints();
-                cell.movePoints();
-            }
-        mainCtx.save();
-        mainCtx.fillStyle = settings.darkTheme ? "#111" : "#F2FBFF";
-        mainCtx.fillRect(0, 0, mainCanvas.width, mainCanvas.height);
-        if (!settings.hideGrid) drawGrid();
-        toCamera(mainCtx);
-        drawBorders();
-        drawSectors();
-        for (let i = 0; i < drawList.length; i++) drawList[i].draw(mainCtx);
-        fromCamera(mainCtx);
-        mainCtx.scale(camera.viewMult, camera.viewMult);
-        let height = 2;
-        mainCtx.fillStyle = settings.darkTheme ? "#FFF" : "#000";
-        mainCtx.textBaseline = "top";
-        let pos;
-        if (!isNaN(stats.score)) {
-            mainCtx.font = "30px Ubuntu";
-            if (!settings.showPos || !isConnected) pos = "";
-            else pos = `| Position: (${~~camera.x}, ${~~camera.y})`;
-            mainCtx.fillText(`Score: ${stats.score} ${pos}`, 2, height);
-            height += 30;
-        } else {
-            mainCtx.font = "30px Ubuntu";
-            if (!settings.showPos || !isConnected) pos = "";
-            else {
-                pos = `Position: (${~~camera.x}, ${~~camera.y})`;
-                mainCtx.fillText(`${pos}`, 2, height);
-                height += 30;
-            }
-        }
-        mainCtx.font = "20px Ubuntu";
-        let gameStatsText = `${~~stats.framesPerSecond} FPS`;
-        if (!isNaN(stats.latency)) gameStatsText += ` | ${stats.latency}ms ping`;
-        mainCtx.fillText(gameStatsText, 2, height);
-        height += 24;
-        if (stats.visible) mainCtx.drawImage(stats.canvas, 2, height);
-        if (leaderboard.visible) mainCtx.drawImage(leaderboard.canvas, mainCanvas.width / camera.viewMult - 10 - leaderboard.canvas.width, 10);
-        if (!settings.hideChat && (isTyping || 1)) {
-            mainCtx.globalAlpha = isTyping ? 1 : Math.max(1000 - syncAppStamp + chat.waitUntil, 0) / 1000;
-            mainCtx.drawImage(chat.canvas, 10 / camera.viewMult, (mainCanvas.height - 55) / camera.viewMult - chat.canvas.height);
-            mainCtx.globalAlpha = 1;
-        }
-        drawMinimap();
-        mainCtx.restore();
-        cacheCleanup();
-        wHandle.requestAnimationFrame(drawGame);
-    }
-    function cellSort(a, b) {
-        return a.s === b.s ? a.id - b.id : a.s - b.s;
-    }
-    function cameraUpdate() {
-        let myCells = [];
-        for (let i = 0; i < cells.mine.length; i++) {
-            let cell = cells.byId.get(cells.mine[i]);
-            if (cell) myCells.push(cell);
-        }
-        if (myCells.length > 0) {
-            let x = 0,
-                y = 0,
-                s = 0,
-                score = 0,
-                len = myCells.length;
-            for (let i = 0; i < len; i++) {
-                let cell = myCells[i];
-                score += ~~(cell.ns * cell.ns / 100);
-                x += cell.x;
-                y += cell.y;
-                s += cell.s;
-            }
-            target.x = x / len;
-            target.y = y / len;
-            target.z = Math.pow(Math.min(64 / s, 1), .4);
-            camera.x = (target.x + camera.x) / 2;
-            camera.y = (target.y + camera.y) / 2;
-            stats.score = score;
-            stats.maxScore = Math.max(stats.maxScore, score);
-        } else {
-            stats.score = NaN;
-            stats.maxScore = 0;
-            camera.x += (target.x - camera.x) / 20;
-            camera.y += (target.y - camera.y) / 20;
-        }
-        camera.z += (target.z * camera.viewMult * mouse.z - camera.z) / 9;
-        camera.zScale = 1 / camera.z;
-    }
-    class Cell {
-        constructor(id, x, y, s, name, color, skin, flags) {
-            this.destroyed = 0;
-            this.diedBy = 0;
-            this.nameSize = 0;
-            this.drawNameSize = 0;
-            this.updated = null;
-            this.dead = null; // timestamps
-            this.id = id;
-            this.x = this.nx = this.ox = x;
-            this.y = this.ny = this.oy = y;
-            this.s = this.ns = this.os = s;
-            this.setColor(color);
-            this.setName(name);
-            this.setSkin(skin);
-            this.jagged = flags & 0x01 || flags & 0x10;
-            this.ejected = !!(flags & 0x20);
-            this.food = !!(flags & 0x80); // For my server
-            this.born = syncUpdStamp;
-            this.points = [];
-            this.pointsVel = [];
-        }
-        destroy(killerId) {
-            cells.byId.delete(this.id);
-            if (cells.mine.remove(this.id) && !cells.mine.length) showOverlay();
-            this.destroyed = 1;
-            this.dead = syncUpdStamp;
-            if (killerId && !this.diedBy) this.diedBy = killerId;
-        }
-        update(relativeTime) {
-            let dt = (relativeTime - this.updated) / 120,
-                prevFrameSize = this.s,
-                diedBy;
-            dt = Math.max(Math.min(dt, 1), 0);
-            if (this.destroyed && Date.now() > this.dead + 200) cells.list.remove(this);
-            else if (this.diedBy && (diedBy = cells.byId.get(this.diedBy))) {
-                this.nx = diedBy.x;
-                this.ny = diedBy.y;
-            }
-            this.x = this.ox + (this.nx - this.ox) * dt;
-            this.y = this.oy + (this.ny - this.oy) * dt;
-            this.s = this.os + (this.ns - this.os) * dt;
-            this.nameSize = ~~(~~(Math.max(~~(.3 * this.ns), 24)) / 3) * 3;
-            this.drawNameSize = ~~(~~(Math.max(~~(.3 * this.s), 24)) / 3) * 3;
-            if (settings.jellyPhysics && this.points.length) {
-                let ratio = this.s / prevFrameSize;
-                if (this.ns != this.os && ratio != 1)
-                    for (let i = 0; i < this.points.length; i++) this.points[i].rl *= ratio;
-            }
-        }
-        updateNumPoints() {
-            let numPoints = Math.min(Math.max(this.s * camera.z | 0, CELL_POINTS_MIN), CELL_POINTS_MAX);
-            if (this.jagged) numPoints = Math.floor(this.s);
-            while (this.points.length > numPoints) {
-                let i = Math.random() * this.points.length | 0;
-                this.points.splice(i, 1);
-                this.pointsVel.splice(i, 1);
-            }
-            if (this.points.length === 0 && numPoints !== 0) {
-                this.points.push({
-                    x: this.x,
-                    y: this.y,
-                    rl: this.s,
-                    parent: this,
-                });
-                this.pointsVel.push(Math.random() - .5);
-            }
-            while (this.points.length < numPoints) {
-                let i = Math.random() * this.points.length | 0,
-                    point = this.points[i],
-                    vel = this.pointsVel[i];
-                this.points.splice(i, 0, {
-                    x: point.x,
-                    y: point.y,
-                    rl: point.rl,
-                    parent: this
-                });
-                this.pointsVel.splice(i, 0, vel);
-            }
-        }
-        movePoints() {
-            let pointsVel = this.pointsVel.slice();
-            for (let i = 0; i < this.points.length; ++i) {
-                let prevVel = pointsVel[(i - 1 + this.points.length) % this.points.length],
-                    nextVel = pointsVel[(i + 1) % this.points.length],
-                    newVel = Math.max(Math.min((this.pointsVel[i] + Math.random() - .5) * .7, 10), -10);
-                this.pointsVel[i] = (prevVel + nextVel + 8 * newVel) / 10;
-            }
-            for (let i = 0; i < this.points.length; ++i) {
-                let curP = this.points[i],
-                    prevRl = this.points[(i - 1 + this.points.length) % this.points.length].rl,
-                    nextRl = this.points[(i + 1) % this.points.length].rl,
-                    curRl = curP.rl,
-                    affected = false;
-                if (!affected && (curP.x < border.left || curP.y < border.top || curP.x > border.right || curP.y > border.bottom)) affected = true;
-                if (affected) this.pointsVel[i] = Math.min(this.pointsVel[i], 0) - 1;
-                curRl += this.pointsVel[i];
-                curRl = Math.max(curRl, 0);
-                curRl = (9 * curRl + this.s) / 10;
-                curP.rl = (prevRl + nextRl + 8 * curRl) / 10;
-                let angle = 2 * Math.PI * i / this.points.length,
-                    rl = curP.rl;
-                if (this.jagged && i % 2 === 0) rl += 5;
-                curP.x = this.x + Math.cos(angle) * rl;
-                curP.y = this.y + Math.sin(angle) * rl;
-            }
-        }
-        setName(value) {
-            let nameSkin = /\{([\w\W]+)\}/.exec(value);
-            if (this.skin == null && nameSkin != null) {
-                this.name = value.replace(nameSkin[0], "").trim();
-                this.setSkin(nameSkin[1]);
-            } else this.name = value;
-        }
-        setSkin(value) {
-            this.skin = (value && value[0] === "%" ? value.slice(1) : value) || this.skin;
-            if (this.skin == null || loadedSkins[this.skin]) return;
-            loadedSkins[this.skin] = new Image();
-            loadedSkins[this.skin].src = `${SKIN_URL}${this.skin}.png`;
-        }
-        setColor(value) {
-            if (!value) return log.warn("Returned no color!");
-            this.color = value;
-            this.sColor = darkenColor(value);
-        }
-        draw(ctx) {
-            ctx.save();
-            this.drawShape(ctx);
-            this.drawText(ctx);
-            ctx.restore();
-        }
-        drawShape(ctx) {
-            if (settings.hideFood && this.food) return;
-            ctx.fillStyle = settings.showColor ? this.color : Cell.prototype.color;
-            let color = String($("#cellBorderColor").val());
-            ctx.strokeStyle = color.length === 3 || color.length === 6 ? "#" + color : settings.showColor ? this.sColor : Cell.prototype.sColor;
-            ctx.lineWidth = this.jagged ? 12 : Math.max(~~(this.s / 50), 10);
-            let showCellBorder = settings.cellBorders && !this.food && !this.ejected && 20 < this.s;
-            if (showCellBorder) this.s -= ctx.lineWidth / 2 - 2;
-            ctx.beginPath();
-            if (this.jagged) ctx.lineJoin = "miter";
-            if (settings.jellyPhysics && this.points.length) {
-                let point = this.points[0];
-                ctx.moveTo(point.x, point.y);
-                for (let i = 0; i < this.points.length; i++) ctx.lineTo(this.points[i].x, this.points[i].y);
-            } else if (this.jagged) {
-                let points = Math.floor(this.s),
-                    increment = PI_2 / points;
-                ctx.moveTo(this.x, this.y + this.s + 3);
-                for (let i = 1; i < points; i++) {
-                    let angle = i * increment,
-                        dist = this.s - 3 + (i % 2 === 0) * 6;
-                    ctx.lineTo(this.x + dist * Math.sin(angle), this.y + dist * Math.cos(angle));
-                }
-                ctx.lineTo(this.x, this.y + this.s + 3);
-            } else ctx.arc(this.x, this.y, this.s, 0, PI_2, false);
-            ctx.closePath();
-            if (settings.transparency) ctx.globalAlpha = .75;
-            else if (this.destroyed) ctx.globalAlpha = Math.max(200 - Date.now() + this.dead, 0) / 100;
-            else ctx.globalAlpha = Math.min(Date.now() - this.born, 200) / 100;
-            if (showCellBorder) ctx.stroke();
-            ctx.fill();
-            if (settings.showSkins && this.skin) {
-                let skin = loadedSkins[this.skin];
-                if (skin && skin.complete && skin.width && skin.height) {
-                    ctx.save();
-                    ctx.clip();
-                    scaleBack(ctx);
-                    let sScaled = this.s * camera.z;
-                    if (settings.jellyPhysics) sScaled += 3;
-                    ctx.drawImage(skin, this.x * camera.z - sScaled, this.y * camera.z - sScaled, sScaled *= 2, sScaled);
-                    scaleForth(ctx);
-                    ctx.restore();
-                }
-            }
-            if (showCellBorder) this.s += ctx.lineWidth / 2 - 2;
-        }
-        drawText(ctx) {
-            if (this.s < 20 || this.jagged) return;
-            if (settings.showMass && (cells.mine.indexOf(this.id) !== -1 || !cells.mine.length) && !this.food/* && !this.ejected*/) {
-                let mass = (~~(this.s * this.s / 100)).toString();
-                if (this.name && settings.showNames) {
-                    drawText(ctx, 0, this.x, this.y, this.nameSize, this.drawNameSize, this.name);
-                    let y = this.y + Math.max(this.s / 4.5, this.nameSize / 1.5);
-                    drawText(ctx, 1, this.x, y, this.nameSize / 2, this.drawNameSize / 2, mass);
-                } else drawText(ctx, 1, this.x, this.y, this.nameSize / 2, this.drawNameSize / 2, mass);
-            } else if (this.name && settings.showNames) drawText(ctx, 0, this.x, this.y, this.nameSize, this.drawNameSize, this.name);
-        }
-    }
-    // 2-var draw-stay cache
-    let cachedNames = {},
-        cachedMass  = {};
-    function cacheCleanup() {
-        for (let i in cachedNames) {
-            for (let j in cachedNames[i])
-                if (syncAppStamp - cachedNames[i][j].accessTime >= 5000) delete cachedNames[i][j];
-            if (cachedNames[i] == {}) delete cachedNames[i];
-        }
-        for (let i in cachedMass)
-            if (syncAppStamp - cachedMass[i].accessTime >= 5000) delete cachedMass[i];
-    }
-    function drawTextOnto(canvas, ctx, text, size) {
-        ctx.font = `${size}px Ubuntu`;
-        ctx.lineWidth = settings.showTextOutline ? Math.max(~~(size / 10), 2) : 2;
-        canvas.width = ctx.measureText(text).width + 2 * ctx.lineWidth;
-        canvas.height = 4 * size;
-        ctx.font = `${size}px Ubuntu`;
-        ctx.lineWidth = settings.showTextOutline ? Math.max(~~(size / 10), 2) : 2;
-        ctx.textBaseline = "middle";
-        ctx.textAlign = "center";
-        let string = String($("#nameColor").val());
-        ctx.fillStyle = "#" + (!string ? "FFF" : string);
-        ctx.strokeStyle = "#000";
-        ctx.translate(canvas.width / 2, 2 * size);
-        (ctx.lineWidth !== 1) && ctx.strokeText(text, 0, 0);
-        ctx.fillText(text, 0, 0);
-    }
-    function drawRaw(ctx, x, y, text, size) {
-        ctx.font = `${size}px Ubuntu`;
-        ctx.textBaseline = "middle";
-        ctx.textAlign = "center";
-        ctx.lineWidth = settings.showTextOutline ? Math.max(~~(size / 10), 2) : 2;
-        ctx.fillStyle = "#FFF";
-        ctx.strokeStyle = "#000";
-        if (ctx.lineWidth !== 1) ctx.strokeText(text, x, y);
-        ctx.fillText(text, x, y);
-        ctx.restore();
-    }
-    function newNameCache(value, size) {
-        let canvas = document.createElement("canvas"),
-            ctx = canvas.getContext("2d");
-        drawTextOnto(canvas, ctx, value, size);
-        cachedNames[value] = cachedNames[value] || {};
-        cachedNames[value][size] = {
-            width: canvas.width,
-            height: canvas.height,
-            canvas: canvas,
-            value: value,
-            size: size,
-            accessTime: syncAppStamp
+
+        document.getElementById("chat_textbox").onblur = function() {
+            isTyping = false;
         };
-        return cachedNames[value][size];
-    }
-    function newMassCache(size) {
-        let canvases = {
-            "0": {}, "1": {}, "2": {}, "3": {}, "4": {},
-            "5": {}, "6": {}, "7": {}, "8": {}, "9": {}
+
+
+        document.getElementById("chat_textbox").onfocus = function() {
+            isTyping = true;
         };
-        for (let value in canvases) {
-            let canvas = canvases[value].canvas = document.createElement("canvas"),
-                ctx = canvas.getContext("2d");
-            drawTextOnto(canvas, ctx, value, size);
-            canvases[value].canvas = canvas;
-            canvases[value].width = canvas.width;
-            canvases[value].height = canvas.height;
-        }
-        cachedMass[size] = {
-            canvases: canvases,
-            size: size,
-            lineWidth: settings.showTextOutline ? Math.max(~~(size / 10), 2) : 2,
-            accessTime: syncAppStamp
-        };
-        return cachedMass[size];
-    }
-    function toleranceTest(a, b, tolerance) {
-        return (a - tolerance) <= b && b <= (a + tolerance);
-    }
-    function getNameCache(value, size) {
-        if (!cachedNames[value]) return newNameCache(value, size);
-        let sizes = Object.keys(cachedNames[value]);
-        for (let i = 0, l = sizes.length; i < l; i++)
-            if (toleranceTest(size, sizes[i], size / 4)) return cachedNames[value][sizes[i]];
-        return newNameCache(value, size);
-    }
-    function getMassCache(size) {
-        let sizes = Object.keys(cachedMass);
-        for (let i = 0, l = sizes.length; i < l; i++)
-            if (toleranceTest(size, sizes[i], size / 4)) return cachedMass[sizes[i]];
-        return newMassCache(size);
-    }
-    function drawText(ctx, isMass, x, y, size, drawSize, value) {
-        ctx.save();
-        if (size > 500) return drawRaw(ctx, x, y, value, drawSize);
-        ctx.imageSmoothingQuality = "high";
-        if (isMass) {
-            let cache = getMassCache(size);
-            cache.accessTime = syncAppStamp;
-            let canvases = cache.canvases,
-                correctionScale = drawSize / cache.size,
-                width = 0; // Calculate width
-            for (let i = 0; i < value.length; i++) width += canvases[value[i]].width - 2 * cache.lineWidth;
-            ctx.scale(correctionScale, correctionScale);
-            x /= correctionScale;
-            y /= correctionScale;
-            x -= width / 2;
-            for (let i = 0; i < value.length; i++) {
-                let item = canvases[value[i]];
-                ctx.drawImage(item.canvas, x, y - item.height / 2);
-                x += item.width - 2 * cache.lineWidth;
-            }
-        } else {
-            let cache = getNameCache(value, size);
-            cache.accessTime = syncAppStamp;
-            let canvas = cache.canvas,
-                correctionScale = drawSize / cache.size;
-            ctx.scale(correctionScale, correctionScale);
-            x /= correctionScale;
-            y /= correctionScale;
-            ctx.drawImage(canvas, x - canvas.width / 2, y - canvas.height / 2);
-        }
-        ctx.restore();
-    }
-    function init() {
-        mainCanvas = document.getElementById("canvas");
-        mainCtx = mainCanvas.getContext("2d");
-        chatBox = document.getElementById("chat_textbox");
-        soundsVolume = document.getElementById("soundsVolume");
-        mainCanvas.focus();
-        function handleScroll(event) {
-            mouse.z *= Math.pow(.95, event.wheelDelta / -120 || event.detail || 0);
-            if (!settings.infiniteZoom && mouse.z < 1) mouse.z = 1;
-            if (mouse.z > 4 / mouse.z) mouse.z = 4 / mouse.z;
-        }
-        if (/firefox/i.test(navigator.userAgent)) document.addEventListener("DOMMouseScroll", handleScroll, 0);
-        else document.body.onmousewheel = handleScroll;
+
+        var spacePressed = false,
+            qPressed = false,
+            ePressed = false,
+            rPressed = false,
+            tPressed = false,
+            pPressed = false,
+            wPressed = false;
         wHandle.onkeydown = function(event) {
             switch (event.keyCode) {
-                case 13: // Enter
-                    if (overlayShown) break;
-                    if (settings.hideChat) break;
-                    if (isTyping) {
-                        chatBox.blur();
-                        let chatText = chatBox.value;
-                        if (chatText.length > 0) sendChat(chatText);
-                        chatBox.value = "";
-                    } else chatBox.focus();
+                case 13: // enter
+                    if (isTyping || hideChat) {
+                        isTyping = false;
+                        document.getElementById("chat_textbox").blur();
+                        chattxt = document.getElementById("chat_textbox").value;
+                        if (chattxt.length > 0) sendChat(chattxt);
+                        document.getElementById("chat_textbox").value = "";
+                    } else {
+                        if (!hasOverlay) {
+                            document.getElementById("chat_textbox").focus();
+                            isTyping = true;
+                        }
+                    }
                     break;
-                case 32: // Space
-                    if (isTyping || overlayShown || pressed.space) break;
-                    wsSend(UINT8[17]);
-                    pressed.space = 1;
+                case 32: // space
+                    if ((!spacePressed) && (!isTyping)) {
+                        sendMouseMove();
+                        sendUint8(17);
+                        spacePressed = true;
+                    }
                     break;
                 case 87: // W
-                    if (isTyping || overlayShown) break;
-                    wsSend(UINT8[21]);
-                    pressed.w = 1;
+                    if ((!wPressed) && (!isTyping)) {
+                        sendMouseMove();
+                        sendUint8(21);
+                        wPressed = true;
+                    }
                     break;
                 case 81: // Q
-                    if (isTyping || overlayShown || pressed.q) break;
-                    wsSend(UINT8[18]);
-                    pressed.q = 1;
+                    if ((!qPressed) && (!isTyping)) {
+                        sendUint8(18);
+                        qPressed = true;
+                    }
                     break;
                 case 69: // E
-                    if (isTyping || overlayShown) break;
-                    wsSend(UINT8[22]);
-                    pressed.e = 1;
+                    if (!ePressed && (!isTyping)) {
+                        sendMouseMove();
+                        sendUint8(22);
+                    }
                     break;
                 case 82: // R
-                    if (isTyping || overlayShown) break;
-                    wsSend(UINT8[23]);
-                    pressed.r = 1;
+                    if (!rPressed && (!isTyping)) {
+                        sendMouseMove();
+                        sendUint8(23);
+                        if (!rMacro) rPressed = true;
+                    }
                     break;
                 case 84: // T
-                    if (isTyping || overlayShown || pressed.t) break;
-                    wsSend(UINT8[24]);
-                    pressed.t = 1;
+                    if (!tPressed && (!isTyping)) {
+                        sendMouseMove();
+                        sendUint8(24);
+                        tPressed = true;
+                    }
                     break;
                 case 80: // P
-                    if (isTyping || overlayShown || pressed.p) break;
-                    wsSend(UINT8[25]);
-                    pressed.p = 1;
+                    if (!pPressed && (!isTyping)) {
+                        sendMouseMove();
+                        sendUint8(25);
+                        pPressed = true;
+                    }
                     break;
-                case 79: // O
-                    if (isTyping || overlayShown || pressed.o) break;
-                    wsSend(UINT8[26]);
-                    pressed.o = 1;
+                case 27: // esc
+                    showOverlays(true);
                     break;
-                case 77: // M
-                    if (isTyping || overlayShown || pressed.m) break;
-                    wsSend(UINT8[27]);
-                    pressed.m = 1;
-                    break;
-                case 73: // I
-                    if (isTyping || overlayShown || pressed.i) break;
-                    wsSend(UINT8[28]);
-                    pressed.i = 1;
-                    break;
-                case 89: // Y
-                    if (isTyping || overlayShown) break;
-                    wsSend(UINT8[30]);
-                    pressed.y = 1;
-                    break;
-                case 85: // U
-                    if (isTyping || overlayShown) break;
-                    wsSend(UINT8[31]);
-                    pressed.u = 1;
-                    break;
-                case 75: // K
-                    if (isTyping || overlayShown || pressed.k) break;
-                    wsSend(UINT8[29]);
-                    pressed.k = 1;
-                    break;
-                case 76: // L
-                    if (isTyping || overlayShown || pressed.l) break;
-                    wsSend(UINT8[33]);
-                    pressed.l = 1;
-                    break;
-                case 72: // H
-                    if (isTyping || overlayShown || pressed.h) break;
-                    wsSend(UINT8[34]);
-                    pressed.h = 1;
-                    break;
-                case 90: // Z
-                    if (isTyping || overlayShown) break;
-                    wsSend(UINT8[35]);
-                    pressed.z = 1;
-                    break;
-                case 88: // X
-                    if (isTyping || overlayShown || pressed.x) break;
-                    wsSend(UINT8[36]);
-                    pressed.x = 1;
-                    break;
-                case 83: // S
-                    if (isTyping || overlayShown) break;
-                    wsSend(UINT8[37]);
-                    pressed.s = 1;
-                    break;
-                case 67: // C
-                    if (isTyping || overlayShown || pressed.c) break;
-                    wsSend(UINT8[38]);
-                    pressed.c = 1;
-                    break;
-                case 71: // J
-                    if (isTyping || overlayShown) break;
-                    wsSend(UINT8[39]);
-                    pressed.j = 1;
-                    break;
-                case 74: // G
-                    if (isTyping || overlayShown) break;
-                    wsSend(UINT8[40]);
-                    pressed.g = 1;
-                    break;
-                case 66: // B
-                    if (isTyping || overlayShown || pressed.b) break;
-                    wsSend(UINT8[41]);
-                    pressed.b = 1;
-                    break;
-                case 86: // V
-                    if (isTyping || overlayShown) break;
-                    wsSend(UINT8[42]);
-                    pressed.v = 1;
-                    break;
-                case 78: // N
-                    if (isTyping || overlayShown) break;
-                    wsSend(UINT8[43]);
-                    pressed.n = 1;
-                    break;
-                case 27: // Esc
-                    if (pressed.esc) break;
-                    overlayShown ? hideOverlay() : showOverlay();
-                    pressed.esc = 1;
             }
         };
         wHandle.onkeyup = function(event) {
             switch (event.keyCode) {
-                case 32: // Space
-                    pressed.space = 0;
+                case 32: // space
+                    spacePressed = false;
                     break;
                 case 87: // W
-                    pressed.w = 0;
+                    wPressed = false;
                     break;
                 case 81: // Q
-                    if (pressed.q) wsSend(UINT8[19]);
-                    pressed.q = 0;
+                    if (qPressed) {
+                        sendUint8(19);
+                        qPressed = false;
+                    }
                     break;
-                case 69: // E
-                    pressed.e = 0;
+                case 69:
+                    ePressed = false;
                     break;
-                case 82: // R
-                    pressed.r = 0;
+                case 82:
+                    rPressed = false;
                     break;
-                case 84: // T
-                    pressed.t = 0;
+                case 84:
+                    tPressed = false;
                     break;
-                case 80: // P
-                    pressed.p = 0;
+                case 80:
+                    pPressed = false;
                     break;
-                case 79: // O
-                    pressed.o = 0;
-                    break;
-                case 77: // M
-                    pressed.m = 0;
-                    break;
-                case 73: // I
-                    pressed.i = 0;
-                    break;
-                case 89: // Y
-                    pressed.y = 0;
-                    break;
-                case 85: // U
-                    pressed.u = 0;
-                    break;
-                case 75: // K
-                    pressed.k = 0;
-                    break;
-                case 76: // L
-                    pressed.l = 0;
-                    break;
-                case 72: // H
-                    pressed.h = 0;
-                    break;
-                case 90: // Z
-                    pressed.z = 0;
-                    break;
-                case 88: // X
-                    pressed.x = 0;
-                    break;
-                case 83: // S
-                    pressed.s = 0;
-                    break;
-                case 67: // C
-                    pressed.c = 0;
-                    break;
-                case 74: // G
-                    pressed.g = 0;
-                    break;
-                case 71: // J
-                    pressed.j = 0;
-                    break;
-                case 66: // B
-                    pressed.b = 0;
-                    break;
-                case 86: // V
-                    pressed.v = 0;
-                    break;
-                case 78: // N
-                    pressed.n = 0;
-                    break;
-                case 27: // Esc
-                    pressed.esc = 0;
             }
         };
-        chatBox.onblur = function() {
-            isTyping = 0;
-            drawChat();
+        wHandle.onblur = function() {
+            sendUint8(19);
+            wPressed = spacePressed = qPressed = ePressed = rPressed = tPressed = pPressed = false
         };
-        chatBox.onfocus = function() {
-            isTyping = 1;
-            drawChat();
-        };
-        mainCanvas.onmousemove = function(event) {
-            mouse.x = event.clientX;
-            mouse.y = event.clientY;
-        };
-        setInterval(() => { // Send mouse update
-            sendMouseMove((mouse.x - mainCanvas.width / 2) / camera.z + camera.x, (mouse.y - mainCanvas.height / 2) / camera.z + camera.y);
-        }, 60);
-        wHandle.onresize = function() {
-            let cW = mainCanvas.width = wHandle.innerWidth,
-                cH = mainCanvas.height = wHandle.innerHeight;
-            camera.viewMult = Math.sqrt(Math.min(cH / 1080, cW / 1920));
-        };
-        wHandle.onresize();
-        log.info(`Init completed in ${Date.now() - DATE}ms`);
-        gameReset();
-        showOverlay();
-        if (settings.allowGETipSet && wHandle.location.search) {
-            let div = /ip=([\w\W]+):([0-9]+)/.exec(wHandle.location.search.slice(1));
-            if (div) wsInit(`${div[1]}:${div[2]}`);
+
+        wHandle.onresize = canvasResize;
+        canvasResize();
+        if (wHandle.requestAnimationFrame) {
+            wHandle.requestAnimationFrame(redrawGameScene);
+        } else {
+            setInterval(drawGameScene, 1E3 / 60);
         }
-        window.requestAnimationFrame(drawGame);
+        setInterval(sendMouseMove, 40);
+
+        null == ws && showConnecting();
+        wjQuery("#overlays").show();
     }
-    wHandle.setServer = function(arg) {
-        if (WS_URL === arg) return;
-        wsInit(arg);
+
+    function onTouchStart(e) {
+        for (var i = 0; i < e.changedTouches.length; i++) {
+            var touch = e.changedTouches[i];
+            if ((leftTouchID < 0) && (touch.clientX < canvasWidth / 2)) {
+                leftTouchID = touch.identifier;
+                leftTouchStartPos.reset(touch.clientX, touch.clientY);
+                leftTouchPos.copyFrom(leftTouchStartPos);
+                leftVector.reset(0, 0);
+            }
+
+            var size = ~~(canvasWidth / 7);
+            if ((touch.clientX > canvasWidth - size) && (touch.clientY > canvasHeight - size)) {
+                sendMouseMove();
+                sendUint8(17); // split
+            }
+
+            if ((touch.clientX > canvasWidth - size) && (touch.clientY > canvasHeight - 2 * size - 10) && (touch.clientY < canvasHeight - size - 10)) {
+                sendMouseMove();
+                sendUint8(21); // eject
+            }
+        }
+        touches = e.touches;
+    }
+
+    function onTouchMove(e) {
+        e.preventDefault();
+        for (var i = 0; i < e.changedTouches.length; i++) {
+            var touch = e.changedTouches[i];
+            if (leftTouchID == touch.identifier) {
+                leftTouchPos.reset(touch.clientX, touch.clientY);
+                leftVector.copyFrom(leftTouchPos);
+                leftVector.minusEq(leftTouchStartPos);
+                rawMouseX = leftVector.x * 3 + canvasWidth / 2;
+                rawMouseY = leftVector.y * 3 + canvasHeight / 2;
+                mouseCoordinateChange();
+                sendMouseMove();
+            }
+        }
+        touches = e.touches;
+    }
+
+    function onTouchEnd(e) {
+        touches = e.touches;
+        for (var i = 0; i < e.changedTouches.length; i++) {
+            var touch = e.changedTouches[i];
+            if (leftTouchID == touch.identifier) {
+                leftTouchID = -1;
+                leftVector.reset(0, 0);
+                break;
+            }
+        }
+    }
+
+    function handleWheel(event) {
+        zoom *= Math.pow(.9, event.wheelDelta / -120 || event.detail || 0);
+        1 > zoom && (zoom = 1);
+        zoom > 4 / viewZoom && (zoom = 4 / viewZoom)
+    }
+
+    function buildQTree() {
+        if (.4 > viewZoom) qTree = null;
+        else {
+            var a = Number.POSITIVE_INFINITY,
+                b = Number.POSITIVE_INFINITY,
+                c = Number.NEGATIVE_INFINITY,
+                d = Number.NEGATIVE_INFINITY,
+                e = 0;
+            for (var i = 0; i < nodelist.length; i++) {
+                var node = nodelist[i];
+                if (node.shouldRender() && !node.prepareData && 20 < node.size * viewZoom) {
+                    e = Math.max(node.size, e);
+                    a = Math.min(node.x, a);
+                    b = Math.min(node.y, b);
+                    c = Math.max(node.x, c);
+                    d = Math.max(node.y, d);
+                }
+            }
+            qTree = Quad.init({
+                minX: a - (e + 100),
+                minY: b - (e + 100),
+                maxX: c + (e + 100),
+                maxY: d + (e + 100),
+                maxChildren: 2,
+                maxDepth: 4
+            });
+            for (i = 0; i < nodelist.length; i++) {
+                node = nodelist[i];
+                if (node.shouldRender() && !(20 >= node.size * viewZoom)) {
+                    for (a = 0; a < node.points.length; ++a) {
+                        b = node.points[a].x;
+                        c = node.points[a].y;
+                        b < nodeX - canvasWidth / 2 / viewZoom || c < nodeY - canvasHeight / 2 / viewZoom || b > nodeX + canvasWidth / 2 / viewZoom || c > nodeY + canvasHeight / 2 / viewZoom || qTree.insert(node.points[a]);
+                    }
+                }
+            }
+        }
+    }
+
+    function mouseCoordinateChange() {
+        X = (rawMouseX - canvasWidth / 2) / viewZoom + nodeX;
+        Y = (rawMouseY - canvasHeight / 2) / viewZoom + nodeY
+    }
+
+    function hideOverlays() {
+        hasOverlay = false;
+        wjQuery("#overlays").hide();
+    }
+
+    function showOverlays(arg) {
+        hasOverlay = true;
+        userNickName = null;
+        wjQuery("#overlays").fadeIn(arg ? 200 : 3E3);
+    }
+
+    function showConnecting() {
+        if (ma) {
+            wjQuery("#connecting").show();
+            wsConnect((useHttps ? "wss://" : "ws://") + CONNECTION_URL)
+        }
+    }
+
+    function wsConnect(wsUrl) {
+        if (ws) {
+            ws.onopen = null;
+            ws.onmessage = null;
+            ws.onclose = null;
+            try {
+                ws.close()
+            } catch (b) {}
+            ws = null
+        }
+        var c = CONNECTION_URL;
+        wsUrl = (useHttps ? "wss://" : "ws://") + c;
+        nodesOnScreen = [];
+        playerCells = [];
+        nodes = {};
+        nodelist = [];
+        Cells = [];
+        leaderBoard = [];
+        mainCanvas = teamScores = null;
+        userScore = 0;
+        log.info("Connecting to " + wsUrl + "..");
+        ws = new WebSocket(wsUrl);
+        ws.binaryType = "arraybuffer";
+        ws.onopen = onWsOpen;
+        ws.onmessage = onWsMessage;
+        ws.onclose = onWsClose;
+    }
+
+    function prepareData(a) {
+        return new DataView(new ArrayBuffer(a))
+    }
+
+    function wsSend(a) {
+        ws.send(a.buffer)
+    }
+
+    function onWsOpen() {
+        var msg;
+        delay = 500;
+        wjQuery("#connecting").hide();
+        msg = prepareData(5);
+        msg.setUint8(0, 254);
+        msg.setUint32(1, 5, true); // Protocol 5
+        wsSend(msg);
+        msg = prepareData(5);
+        msg.setUint8(0, 255);
+        msg.setUint32(1, 0, true);
+        wsSend(msg);
+        sendNickName();
+        log.info("Connection successful!")
+    }
+
+    function onWsClose() {
+        setTimeout(showConnecting, delay);
+        delay *= 1.5;
+    }
+
+    function onWsMessage(msg) {
+        handleWsMessage(new DataView(msg.data));
+    }
+
+    function handleWsMessage(msg) {
+        function getString() {
+            var text = '',
+                char;
+            while ((char = msg.getUint16(offset, true)) != 0) {
+                offset += 2;
+                text += String.fromCharCode(char);
+            }
+            offset += 2;
+            return text;
+        }
+
+        var offset = 0,
+            setCustomLB = false;
+        240 == msg.getUint8(offset) && (offset += 5);
+        switch (msg.getUint8(offset++)) {
+            case 16: // update nodes
+                updateNodes(msg, offset);
+                break;
+            case 17: // update position
+                posX = msg.getFloat32(offset, true);
+                offset += 4;
+                posY = msg.getFloat32(offset, true);
+                offset += 4;
+                posSize = msg.getFloat32(offset, true);
+                offset += 4;
+                break;
+            case 20: // clear nodes
+                playerCells = [];
+                nodesOnScreen = [];
+                break;
+            case 21: // draw line
+                lineX = msg.getInt16(offset, true);
+                offset += 2;
+                lineY = msg.getInt16(offset, true);
+                offset += 2;
+                if (!drawLine) {
+                    drawLine = true;
+                    drawLineX = lineX;
+                    drawLineY = lineY;
+                }
+                break;
+            case 32: // add node
+                nodesOnScreen.push(msg.getUint32(offset, true));
+                offset += 4;
+                break;
+            case 48: // update leaderboard (custom text)
+                setCustomLB = true;
+                noRanking = true;
+                break;
+            case 49: // update leaderboard (ffa)
+                if (!setCustomLB) {
+                    noRanking = false;
+                }
+                teamScores = null;
+                var LBplayerNum = msg.getUint32(offset, true);
+                offset += 4;
+                leaderBoard = [];
+                for (i = 0; i < LBplayerNum; ++i) {
+                    var nodeId = msg.getUint32(offset, true);
+                    offset += 4;
+                    leaderBoard.push({
+                        id: nodeId,
+                        name: getString()
+                    })
+                }
+                drawLeaderBoard();
+                break;
+            case 50: // update leaderboard (teams)
+                teamScores = [];
+                var LBteamNum = msg.getUint32(offset, true);
+                offset += 4;
+                for (var i = 0; i < LBteamNum; ++i) {
+                    teamScores.push(msg.getFloat32(offset, true));
+                    offset += 4;
+                }
+                drawLeaderBoard();
+                break;
+            case 64: // set border
+                leftPos = msg.getFloat64(offset, true);
+                offset += 8;
+                topPos = msg.getFloat64(offset, true);
+                offset += 8;
+                rightPos = msg.getFloat64(offset, true);
+                offset += 8;
+                bottomPos = msg.getFloat64(offset, true);
+                offset += 8;
+                posX = (rightPos + leftPos) / 2;
+                posY = (bottomPos + topPos) / 2;
+                posSize = 1;
+                if (0 == playerCells.length) {
+                    nodeX = posX;
+                    nodeY = posY;
+                    viewZoom = posSize;
+                }
+                break;
+            case 99:
+                addChat(msg, offset);
+                break;
+        }
+    }
+
+    function addChat(view, offset) {
+        function getString() {
+            var text = '',
+                char;
+            while ((char = view.getUint16(offset, true)) != 0) {
+                offset += 2;
+                text += String.fromCharCode(char);
+            }
+            offset += 2;
+            return text;
+        }
+
+        var flags = view.getUint8(offset++);
+        
+        if (flags & 0x80) {
+            // SERVER Message
+        }
+
+        if (flags & 0x40) {
+            // ADMIN Message
+        }
+
+        if (flags & 0x20) {
+            // MOD Message
+        }
+
+        var r = view.getUint8(offset++),
+            g = view.getUint8(offset++),
+            b = view.getUint8(offset++),
+            color = (r << 16 | g << 8 | b).toString(16);
+        while (color.length < 6) {
+            color = '0' + color;
+        }
+        color = '#' + color;
+        chatBoard.push({
+            "name": getString(),
+            "color": color,
+            "message": getString(),
+            "time": Date.now()
+        });
+        drawChatBoard();
+    }
+
+    function drawChatBoard() {
+        if (hideChat)  {
+            chatCanvas = null;
+            return;
+        }
+        chatCanvas = document.createElement("canvas");
+        var ctx = chatCanvas.getContext("2d");
+        var scaleFactor = Math.min(Math.max(canvasWidth / 1200, 0.75), 1); //scale factor = 0.75 to 1
+        chatCanvas.width = 1E3 * scaleFactor;
+        chatCanvas.height = 550 * scaleFactor;
+        ctx.scale(scaleFactor, scaleFactor);
+        var nowtime = Date.now();
+        var lasttime = 0;
+        if (chatBoard.length >= 1)
+            lasttime = chatBoard[chatBoard.length - 1].time;
+        else return;
+        var deltat = nowtime - lasttime;
+        ctx.globalAlpha = 0.8 * Math.exp(-deltat / 25000);
+
+        var len = chatBoard.length;
+        var from = len - 15;
+        if (from < 0) from = 0;
+        for (var i = 0; i < (len - from); i++) {
+            var chatName = new UText(18, chatBoard[i + from].color);
+            chatName.setValue(chatBoard[i + from].name);
+            var width = chatName.getWidth();
+            var a = chatName.render();
+            ctx.drawImage(a, 15, chatCanvas.height / scaleFactor - 24 * (len - i - from));
+
+            var chatText = new UText(18, '#666666');
+            chatText.setValue(':' + chatBoard[i + from].message);
+            a = chatText.render();
+            ctx.drawImage(a, 15 + width * 1.8, chatCanvas.height / scaleFactor - 24 * (len - from - i));
+        }
+    }
+
+
+    function updateNodes(view, offset) {
+        timestamp = +new Date;
+        var code = Math.random();
+        ua = false;
+        var queueLength = view.getUint16(offset, true);
+        offset += 2;
+
+        for (i = 0; i < queueLength; ++i) {
+            var killer = nodes[view.getUint32(offset, true)],
+                killedNode = nodes[view.getUint32(offset + 4, true)];
+            offset += 8;
+            if (killer && killedNode) {
+                killedNode.destroy();
+                killedNode.ox = killedNode.x;
+                killedNode.oy = killedNode.y;
+                killedNode.oSize = killedNode.size;
+                killedNode.nx = killer.x;
+                killedNode.ny = killer.y;
+                killedNode.nSize = killedNode.size;
+                killedNode.updateTime = timestamp;
+            }
+        }
+
+        for (var i = 0;;) {
+            var nodeid = view.getUint32(offset, true);
+            offset += 4;
+            if (0 == nodeid) break;
+            ++i;
+
+            var size, posY, posX = view.getInt32(offset, true);
+            offset += 4;
+            posY = view.getInt32(offset, true);
+            offset += 4;
+            size = view.getInt16(offset, true);
+            offset += 2;
+
+            for (var r = view.getUint8(offset++), g = view.getUint8(offset++), b = view.getUint8(offset++),
+                    color = (r << 16 | g << 8 | b).toString(16); 6 > color.length;) color = "0" + color;
+            var colorstr = "#" + color,
+                flags = view.getUint8(offset++),
+                flagVirus = !!(flags & 0x01),
+                flagEjected = !!(flags & 0x20),
+                flagAgitated = !!(flags & 0x10),
+                _skin = "";
+
+            flags & 2 && (offset += 4);
+
+            if (flags & 4) {
+                for (;;) { // skin name
+                    t = view.getUint8(offset, true) & 0x7F;
+                    offset += 1;
+                    if (0 == t) break;
+                    _skin += String.fromCharCode(t);
+                }
+            }
+
+            for (var char, name = "";;) { // nick name
+                char = view.getUint16(offset, true);
+                offset += 2;
+                if (0 == char) break;
+                name += String.fromCharCode(char);
+            }
+
+            var node = null;
+            if (nodes.hasOwnProperty(nodeid)) {
+                node = nodes[nodeid];
+                node.updatePos();
+                node.ox = node.x;
+                node.oy = node.y;
+                node.oSize = node.size;
+                node.color = colorstr;
+            } else {
+                node = new Cell(nodeid, posX, posY, size, colorstr, name, _skin);
+                nodelist.push(node);
+                nodes[nodeid] = node;
+                node.ka = posX;
+                node.la = posY;
+            }
+            node.isVirus = flagVirus;
+            node.isEjected = flagEjected;
+            node.isAgitated = flagAgitated;
+            node.nx = posX;
+            node.ny = posY;
+            node.setSize(size);
+            node.updateCode = code;
+            node.updateTime = timestamp;
+            node.flag = flags;
+            name && node.setName(name);
+            if (-1 != nodesOnScreen.indexOf(nodeid) && -1 == playerCells.indexOf(node)) {
+                document.getElementById("overlays").style.display = "none";
+                playerCells.push(node);
+                if (1 == playerCells.length) {
+                    nodeX = node.x;
+                    nodeY = node.y;
+                }
+            }
+        }
+        queueLength = view.getUint32(offset, true);
+        offset += 4;
+        for (i = 0; i < queueLength; i++) {
+            var nodeId = view.getUint32(offset, true);
+            offset += 4;
+            node = nodes[nodeId];
+            null != node && node.destroy();
+        }
+        ua && 0 == playerCells.length && showOverlays(false)
+    }
+
+    function sendMouseMove() {
+        var msg;
+        if (wsIsOpen()) {
+            msg = rawMouseX - canvasWidth / 2;
+            var b = rawMouseY - canvasHeight / 2;
+            if (64 <= msg * msg + b * b && !(.01 > Math.abs(oldX - X) && .01 > Math.abs(oldY - Y))) {
+                oldX = X;
+                oldY = Y;
+                msg = prepareData(21);
+                msg.setUint8(0, 16);
+                msg.setFloat64(1, X, true);
+                msg.setFloat64(9, Y, true);
+                msg.setUint32(17, 0, true);
+                wsSend(msg);
+            }
+        }
+    }
+
+    function sendNickName() {
+        if (wsIsOpen() && null != userNickName) {
+            var msg = prepareData(1 + 2 * userNickName.length);
+            msg.setUint8(0, 0);
+            for (var i = 0; i < userNickName.length; ++i) msg.setUint16(1 + 2 * i, userNickName.charCodeAt(i), true);
+            wsSend(msg)
+        }
+    }
+
+    function sendChat(str) {
+        if (wsIsOpen() && (str.length < 200) && (str.length > 0) && !hideChat) {
+            var msg = prepareData(2 + 2 * str.length);
+            var offset = 0;
+            msg.setUint8(offset++, 99);
+            msg.setUint8(offset++, 0); // flags (0 for now)
+            for (var i = 0; i < str.length; ++i) {
+                msg.setUint16(offset, str.charCodeAt(i), true);
+                offset += 2;
+            }
+
+            wsSend(msg);
+        }
+    }
+
+    function wsIsOpen() {
+        return null != ws && ws.readyState == ws.OPEN
+    }
+
+    function sendUint8(a) {
+        if (wsIsOpen()) {
+            var msg = prepareData(1);
+            msg.setUint8(0, a);
+            wsSend(msg)
+        }
+    }
+
+    function redrawGameScene() {
+        drawGameScene();
+        wHandle.requestAnimationFrame(redrawGameScene)
+    }
+
+    function canvasResize() {
+        window.scrollTo(0, 0);
+        canvasWidth = wHandle.innerWidth;
+        canvasHeight = wHandle.innerHeight;
+        nCanvas.width = canvasWidth;
+        nCanvas.height = canvasHeight;
+        drawGameScene()
+    }
+
+    function viewRange() {
+        var ratio;
+        ratio = Math.max(canvasHeight / 1080, canvasWidth / 1920);
+        return ratio * zoom;
+    }
+
+    function calcViewZoom() {
+        if (0 != playerCells.length) {
+            for (var newViewZoom = 0, i = 0; i < playerCells.length; i++) newViewZoom += playerCells[i].size;
+            newViewZoom = Math.pow(Math.min(64 / newViewZoom, 1), .4) * viewRange();
+            viewZoom = (9 * viewZoom + newViewZoom) / 10;
+        }
+    }
+
+    function drawGameScene() {
+        var a, oldtime = Date.now();
+        ++cb;
+        timestamp = oldtime;
+        if (0 < playerCells.length) {
+            calcViewZoom();
+            var c = a = 0;
+            for (var d = 0; d < playerCells.length; d++) {
+                playerCells[d].updatePos();
+                a += playerCells[d].x / playerCells.length;
+                c += playerCells[d].y / playerCells.length;
+            }
+            posX = a;
+            posY = c;
+            posSize = viewZoom;
+            nodeX = (nodeX + a) / 2;
+            nodeY = (nodeY + c) / 2
+        } else {
+            nodeX = (29 * nodeX + posX) / 30;
+            nodeY = (29 * nodeY + posY) / 30;
+            viewZoom = (9 * viewZoom + posSize * viewRange()) / 10;
+        }
+        buildQTree();
+        mouseCoordinateChange();
+        xa || ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+        if (xa) {
+            if (showDarkTheme) {
+                ctx.fillStyle = '#111111';
+                ctx.globalAlpha = .05;
+                ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+                ctx.globalAlpha = 1;
+            } else {
+                ctx.fillStyle = '#F2FBFF';
+                ctx.globalAlpha = .05;
+                ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+                ctx.globalAlpha = 1;
+            }
+        } else {
+            drawGrid();
+        }
+        nodelist.sort(function(a, b) {
+            return a.size === b.size ? a.id - b.id : a.size - b.size
+        });
+        ctx.save();
+        ctx.translate(canvasWidth / 2, canvasHeight / 2);
+        ctx.scale(viewZoom, viewZoom);
+        ctx.translate(-nodeX, -nodeY);
+        for (d = 0; d < Cells.length; d++) Cells[d].drawOneCell(ctx);
+
+        for (d = 0; d < nodelist.length; d++) nodelist[d].drawOneCell(ctx);
+        if (drawLine) {
+            drawLineX = (3 * drawLineX + lineX) /
+                4;
+            drawLineY = (3 * drawLineY + lineY) / 4;
+            ctx.save();
+            ctx.strokeStyle = "#FFAAAA";
+            ctx.lineWidth = 10;
+            ctx.lineCap = "round";
+            ctx.lineJoin = "round";
+            ctx.globalAlpha = .5;
+            ctx.beginPath();
+            for (d = 0; d < playerCells.length; d++) {
+                ctx.moveTo(playerCells[d].x, playerCells[d].y);
+                ctx.lineTo(drawLineX, drawLineY);
+            }
+            ctx.stroke();
+            ctx.restore()
+        }
+        ctx.restore();
+        lbCanvas && lbCanvas.width && ctx.drawImage(lbCanvas, canvasWidth - lbCanvas.width - 10, 10); // draw Leader Board
+        if (chatCanvas != null) ctx.drawImage(chatCanvas, 0, canvasHeight - chatCanvas.height - 50); // draw Leader Board
+
+        userScore = Math.max(userScore, calcUserScore());
+        if (0 != userScore) {
+            if (null == scoreText) {
+                scoreText = new UText(24, '#FFFFFF');
+            }
+            scoreText.setValue('Score: ' + ~~(userScore / 100));
+            c = scoreText.render();
+            a = c.width;
+            ctx.globalAlpha = .2;
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(10, 10, a + 10, 34); //canvasHeight - 10 - 24 - 10
+            ctx.globalAlpha = 1;
+            ctx.drawImage(c, 15, 15); //canvasHeight - 10 - 24 - 5
+        }
+        drawSplitIcon(ctx);
+
+        drawTouch(ctx);
+        //drawChatBoard();
+        var deltatime = Date.now() - oldtime;
+        deltatime > 1E3 / 60 ? z -= .01 : deltatime < 1E3 / 65 && (z += .01);
+        .4 > z && (z = .4);
+        1 < z && (z = 1)
+    }
+
+    function drawTouch(ctx) {
+        ctx.save();
+        if (touchable) {
+            for (var i = 0; i < touches.length; i++) {
+                var touch = touches[i];
+                if (touch.identifier == leftTouchID) {
+                    ctx.beginPath();
+                    ctx.strokeStyle = "#0096ff";
+                    ctx.lineWidth = 6;
+                    ctx.arc(leftTouchStartPos.x, leftTouchStartPos.y, 40, 0, Math.PI * 2, true);
+                    ctx.stroke();
+                    ctx.beginPath();
+                    ctx.strokeStyle = "#0096ff";
+                    ctx.lineWidth = 2;
+                    ctx.arc(leftTouchStartPos.x, leftTouchStartPos.y, 60, 0, Math.PI * 2, true);
+                    ctx.stroke();
+                    ctx.beginPath();
+                    ctx.strokeStyle = "#0096ff";
+                    ctx.arc(leftTouchPos.x, leftTouchPos.y, 40, 0, Math.PI * 2, true);
+                    ctx.stroke();
+                } else {
+                    ctx.beginPath();
+                    ctx.beginPath();
+                    ctx.strokeStyle = "#0096ff";
+                    ctx.lineWidth = "6";
+                    ctx.arc(touch.clientX, touch.clientY, 40, 0, Math.PI * 2, true);
+                    ctx.stroke();
+                }
+            }
+        }
+        ctx.restore();
+    }
+
+    function drawGrid() {
+        ctx.fillStyle = showDarkTheme ? "#111111" : "#F2FBFF";
+        ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+        ctx.save();
+        ctx.strokeStyle = showDarkTheme ? "#AAAAAA" : "#000000";
+        ctx.globalAlpha = .2;
+        ctx.scale(viewZoom, viewZoom);
+        var a = canvasWidth / viewZoom,
+            b = canvasHeight / viewZoom;
+        for (var c = -.5 + (-nodeX + a / 2) % 50; c < a; c += 50) {
+            ctx.moveTo(c, 0);
+            ctx.lineTo(c, b);
+        }
+        ctx.stroke();
+        ctx.beginPath();
+        for (c = -.5 + (-nodeY + b / 2) % 50; c < b; c += 50) {
+            ctx.moveTo(0, c);
+            ctx.lineTo(a, c);
+        }
+        ctx.stroke()
+        ctx.restore()
+    }
+
+    function drawSplitIcon(ctx) {
+        if (isTouchStart && splitIcon.width) {
+            var size = ~~(canvasWidth / 7);
+            ctx.drawImage(splitIcon, canvasWidth - size, canvasHeight - size, size, size);
+        }
+
+        if (isTouchStart && splitIcon.width) {
+            var size = ~~(canvasWidth / 7);
+            ctx.drawImage(ejectIcon, canvasWidth - size, canvasHeight - 2 * size - 10, size, size);
+        }
+    }
+
+    function calcUserScore() {
+        for (var score = 0, i = 0; i < playerCells.length; i++) score += playerCells[i].nSize * playerCells[i].nSize;
+        return score
+    }
+
+    function drawLeaderBoard() {
+        lbCanvas = null;
+        var drawTeam = null != teamScores;
+        if (drawTeam || 0 != leaderBoard.length)
+            if (drawTeam || showName) {
+                lbCanvas = document.createElement("canvas");
+                var ctx = lbCanvas.getContext("2d"),
+                    boardLength = 60;
+                boardLength = !drawTeam ? boardLength + 24 * leaderBoard.length : boardLength + 180;
+                var scaleFactor = Math.min(0.22 * canvasHeight, Math.min(200, .3 * canvasWidth)) * 0.005;
+                lbCanvas.width = 200 * scaleFactor;
+                lbCanvas.height = boardLength * scaleFactor;
+
+                ctx.scale(scaleFactor, scaleFactor);
+                ctx.globalAlpha = .4;
+                ctx.fillStyle = "#000000";
+                ctx.fillRect(0, 0, 200, boardLength);
+
+                ctx.globalAlpha = 1;
+                ctx.fillStyle = "#FFFFFF";
+                var c = "Leaderboard";
+                ctx.font = "30px Ubuntu";
+                ctx.fillText(c, 100 - ctx.measureText(c).width * 0.5, 40);
+                var b, l;
+                if (!drawTeam) {
+                    for (ctx.font = "20px Ubuntu", b = 0, l = leaderBoard.length; b < l; ++b) {
+                        c = leaderBoard[b].name || "An unnamed cell";
+                        if (!showName) {
+                            (c = "An unnamed cell");
+                        }
+                        var me = -1 != nodesOnScreen.indexOf(leaderBoard[b].id);
+                        if (me) playerCells[0].name && (c = playerCells[0].name);
+                        me ? ctx.fillStyle = "#FFAAAA" : ctx.fillStyle = "#FFFFFF";
+                        if (!noRanking) c = b + 1 + ". " + c;
+                        var start = (ctx.measureText(c).width > 200) ? 2 : 100 - ctx.measureText(c).width * 0.5;
+                        ctx.fillText(c, start, 70 + 24 * b);
+                    }
+                } else {
+                    for (b = c = 0; b < teamScores.length; ++b) {
+                        var d = c + teamScores[b] * Math.PI * 2;
+                        ctx.fillStyle = teamColor[b + 1];
+                        ctx.beginPath();
+                        ctx.moveTo(100, 140);
+                        ctx.arc(100, 140, 80, c, d, false);
+                        ctx.fill();
+                        c = d
+                    }
+                }
+            }
+    }
+
+    function Cell(uid, ux, uy, usize, ucolor, uname, a) {
+        this.id = uid;
+        this.ox = this.x = ux;
+        this.oy = this.y = uy;
+        this.oSize = this.size = usize;
+        this.color = ucolor;
+        this.points = [];
+        this.pointsAcc = [];
+        this.createPoints();
+        this.setName(uname)
+        this._skin = a;
+    }
+
+    function UText(usize, ucolor, ustroke, ustrokecolor) {
+        usize && (this._size = usize);
+        ucolor && (this._color = ucolor);
+        this._stroke = !!ustroke;
+        ustrokecolor && (this._strokeColor = ustrokecolor)
+    }
+
+
+    var localProtocol = wHandle.location.protocol,
+        localProtocolHttps = "https:" == localProtocol;
+    var nCanvas, ctx, mainCanvas, lbCanvas, chatCanvas, canvasWidth, canvasHeight, qTree = null,
+        ws = null,
+        nodeX = 0,
+        nodeY = 0,
+        nodesOnScreen = [],
+        playerCells = [],
+        nodes = {},
+        nodelist = [],
+        Cells = [],
+        leaderBoard = [],
+        chatBoard = [],
+        rawMouseX = 0,
+        rawMouseY = 0,
+        X = -1,
+        Y = -1,
+        cb = 0,
+        timestamp = 0,
+        userNickName = null,
+        leftPos = 0,
+        topPos = 0,
+        rightPos = 1E4,
+        bottomPos = 1E4,
+        viewZoom = 1,
+        showSkin = true,
+        showName = true,
+        showColor = false,
+        ua = false,
+        userScore = 0,
+        showDarkTheme = false,
+        showMass = false,
+        hideChat = false,
+        smoothRender = .4,
+        posX = nodeX = ~~((leftPos + rightPos) / 2),
+        posY = nodeY = ~~((topPos + bottomPos) / 2),
+        posSize = 1,
+        teamScores = null,
+        ma = false,
+        hasOverlay = true,
+        drawLine = false,
+        lineX = 0,
+        lineY = 0,
+        drawLineX = 0,
+        drawLineY = 0,
+        Ra = 0,
+        teamColor = ["#333333", "#FF3333", "#33FF33", "#3333FF"],
+        xa = false,
+        zoom = 1,
+        isTouchStart = "ontouchstart" in wHandle && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent),
+        splitIcon = new Image,
+        ejectIcon = new Image,
+        noRanking = false;
+    splitIcon.src = "assets/img/split.png";
+    ejectIcon.src = "assets/img/feed.png";
+    var wCanvas = document.createElement("canvas");
+    var playerStat = null;
+    wHandle.isSpectating = false;
+    wHandle.setNick = function(arg) {
+        hideOverlays();
+        userNickName = arg;
+        sendNickName();
+        userScore = 0
     };
     wHandle.setSkins = function(arg) {
-        settings.showSkins = arg;
+        showSkin = arg
     };
     wHandle.setNames = function(arg) {
-        settings.showNames = arg;
-        drawLeaderboard();
-    };
-    wHandle.setColors = function(arg) {
-        settings.showColor = !arg;
-    };
-    wHandle.setChatHide = function(arg) {
-        settings.hideChat = arg;
-        settings.hideChat ? wjQuery('#chat_textbox').hide() : wjQuery('#chat_textbox').show();
-    };
-    wHandle.setMinimap = function(arg) {
-        settings.showMinimap = !arg;
-    };
-    wHandle.setGrid = function(arg) {
-        settings.hideGrid = arg;
-    };
-    wHandle.setFood = function(arg) {
-        settings.hideFood = arg;
-    };
-    wHandle.setStats = function(arg) {
-        settings.hideStats = arg;
-    };
-    wHandle.setShowMass = function(arg) {
-        settings.showMass = arg;
+        showName = arg
     };
     wHandle.setDarkTheme = function(arg) {
-        settings.darkTheme = arg;
-        drawStats();
+        showDarkTheme = arg
     };
-    wHandle.setCellBorder = function(arg) {
-        settings.cellBorders = arg;
+    wHandle.setColors = function(arg) {
+        showColor = arg
     };
-    wHandle.setJelly = function(arg) {
-        settings.jellyPhysics = arg;
+    wHandle.setShowMass = function(arg) {
+        showMass = arg
     };
-    wHandle.setTextOutline = function(arg) {
-        settings.showTextOutline = arg;
+    wHandle.setSmooth = function(arg) {
+        smoothRender = arg ? 2 : .4
     };
-    wHandle.setZoom = function(arg) {
-        settings.infiniteZoom = arg;
-    };
-    wHandle.setTransparency = function(arg) {
-        settings.transparency = arg;
-    };
-    wHandle.setMapBorders = function(arg) {
-        settings.mapBorders = arg;
-    };
-    wHandle.setSectors = function(arg) {
-        settings.sectors = arg;
-    };
-    wHandle.setCellPos = function(arg) {
-        settings.showPos = arg;
-    };
+    wHandle.setChatHide = function(arg) {
+        hideChat = arg;
+        if (hideChat) {
+            wjQuery('#chat_textbox').hide();
+        } else {
+            wjQuery('#chat_textbox').show();
+        }
+    }
     wHandle.spectate = function() {
-        wsSend(UINT8[1]);
-        stats.maxScore = 0;
-        hideOverlay();
+        userNickName = null;
+        wHandle.isSpectating = true;
+        sendUint8(1);
+        hideOverlays()
     };
-    wHandle.play = function(arg) {
-        sendPlay(arg);
-        hideOverlay();
+    wHandle.setAcid = function(arg) {
+        xa = arg
     };
-    wHandle.onload = init;
+    wHandle.openSkinsList = function(arg) {
+        if ($('#inPageModalTitle').text() != "Skins") {
+            $.get('include/gallery.php').then(function(data) {
+                $('#inPageModalTitle').text("Skins");
+                $('#inPageModalBody').html(data);
+            });
+        }
+    };
+
+    if (null != wHandle.localStorage) {
+        wjQuery(window).load(function() {
+            wjQuery(".save").each(function() {
+                var id = $(this).data("box-id");
+                var value = wHandle.localStorage.getItem("checkbox-" + id);
+                if (value && value == "true" && 0 != id) {
+                    $(this).prop("checked", "true");
+                    $(this).trigger("change");
+                } else if (id == 0 && value != null) {
+                    $(this).val(value);
+                }
+            });
+            wjQuery(".save").change(function() {
+                var id = $(this).data('box-id');
+                var value = (id == 0) ? $(this).val() : $(this).prop('checked');
+                wHandle.localStorage.setItem("checkbox-" + id, value);
+            });
+        });
+        if (null == wHandle.localStorage.AB8) {
+            wHandle.localStorage.AB8 = ~~(100 * Math.random());
+        }
+    }
+
+    setTimeout(function() {}, 3E5);
+    var T = {
+        ZW: "EU-London"
+    };
+    wHandle.connect = wsConnect;
+
+    var data = {
+        "action": "test"
+    };
+    wjQuery.ajax({
+        type: "POST",
+        dataType: "json",
+        url: "checkdir.php",
+        data: data,
+        success: function(data) {
+            response = JSON.parse(data["names"]);
+            for (var i = 0; i < response.length; i++) {
+                if (-1 == knownNameDict.indexOf(response[i])) {
+                    knownNameDict.push(response[i]);
+                }
+            }
+        }
+    });
+
+    var delay = 500,
+        oldX = -1,
+        oldY = -1,
+        Canvas = null,
+        z = 1,
+        scoreText = null,
+        skins = {},
+        knownNameDict = "".split(";"),
+        knownNameDict_noDisp = [],
+        ib = ["_canvas'blob"];
+    Cell.prototype = {
+        id: 0,
+        points: null,
+        pointsAcc: null,
+        name: null,
+        nameCache: null,
+        sizeCache: null,
+        x: 0,
+        y: 0,
+        size: 0,
+        ox: 0,
+        oy: 0,
+        oSize: 0,
+        nx: 0,
+        ny: 0,
+        nSize: 0,
+        flag: 0,
+        updateTime: 0,
+        updateCode: 0,
+        drawTime: 0,
+        destroyed: false,
+        isVirus: false,
+        isEjected: false,
+        isAgitated: false,
+        wasSimpleDrawing: true,
+        destroy: function() {
+            var tmp;
+            for (tmp = 0, len = nodelist.length; tmp < len; tmp++)
+                if (nodelist[tmp] === this) {
+                    nodelist.splice(tmp, 1);
+                    break
+                }
+            delete nodes[this.id];
+            tmp = playerCells.indexOf(this);
+            if (-1 != tmp) {
+                ua = true;
+                playerCells.splice(tmp, 1);
+            }
+            tmp = nodesOnScreen.indexOf(this.id);
+            if (-1 != tmp) nodesOnScreen.splice(tmp, 1);
+            this.destroyed = true;
+            Cells.push(this)
+        },
+        getNameSize: function() {
+            return Math.max(~~(.3 * this.size), 24)
+        },
+        setName: function(a) {
+            this.name = a;
+            if (null == this.nameCache) {
+                this.nameCache = new UText(this.getNameSize(), "#FFFFFF", true, "#000000");
+                this.nameCache.setValue(this.name);
+            } else {
+                this.nameCache.setSize(this.getNameSize());
+                this.nameCache.setValue(this.name);
+            }
+        },
+        setSize: function(a) {
+            this.nSize = a;
+            var m = ~~(this.size * this.size * 0.01);
+            if (null === this.sizeCache)
+                this.sizeCache = new UText(this.getNameSize() * 0.5, "#FFFFFF", true, "#000000");
+            else this.sizeCache.setSize(this.getNameSize() * 0.5);
+        },
+        createPoints: function() {
+            for (var samplenum = this.getNumPoints(); this.points.length > samplenum;) {
+                var rand = ~~(Math.random() * this.points.length);
+                this.points.splice(rand, 1);
+                this.pointsAcc.splice(rand, 1)
+            }
+            if (0 == this.points.length && 0 < samplenum) {
+                this.points.push({
+                    ref: this,
+                    size: this.size,
+                    x: this.x,
+                    y: this.y
+                });
+                this.pointsAcc.push(Math.random() - .5);
+            }
+            while (this.points.length < samplenum) {
+                var rand2 = ~~(Math.random() * this.points.length),
+                    point = this.points[rand2];
+                this.points.splice(rand2, 0, {
+                    ref: this,
+                    size: point.size,
+                    x: point.x,
+                    y: point.y
+                });
+                this.pointsAcc.splice(rand2, 0, this.pointsAcc[rand2])
+            }
+        },
+        getNumPoints: function() {
+            if (0 == this.id) return 16;
+            var a = 10;
+            if (20 > this.size) a = 0;
+            if (this.isVirus) a = 30;
+            var b = this.size;
+            if (!this.isVirus)(b *= viewZoom);
+            b *= z;
+            if (this.flag & 32)(b *= .25);
+            return ~~Math.max(b, a);
+        },
+        movePoints: function() {
+            this.createPoints();
+            for (var points = this.points, pointsacc = this.pointsAcc, numpoints = points.length, i = 0; i < numpoints; ++i) {
+                var pos1 = pointsacc[(i - 1 + numpoints) % numpoints],
+                    pos2 = pointsacc[(i + 1) % numpoints];
+                pointsacc[i] += (Math.random() - .5) * (this.isAgitated ? 3 : 1);
+                pointsacc[i] *= .7;
+                10 < pointsacc[i] && (pointsacc[i] = 10); -
+                10 > pointsacc[i] && (pointsacc[i] = -10);
+                pointsacc[i] = (pos1 + pos2 + 8 * pointsacc[i]) / 10
+            }
+            for (var ref = this, isvirus = this.isVirus ? 0 : (this.id / 1E3 + timestamp / 1E4) % (2 * Math.PI), j = 0; j < numpoints; ++j) {
+                var f = points[j].size,
+                    e = points[(j - 1 + numpoints) % numpoints].size,
+                    m = points[(j + 1) % numpoints].size;
+                if (15 < this.size && null != qTree && 20 < this.size * viewZoom && 0 != this.id) {
+                    var l = false,
+                        n = points[j].x,
+                        q = points[j].y;
+                    qTree.retrieve2(n - 5, q - 5, 10, 10, function(a) {
+                        if (a.ref != ref && 25 > (n - a.x) * (n - a.x) + (q - a.y) * (q - a.y)) {
+                            l = true;
+                        }
+                    });
+                    if (!l && points[j].x < leftPos || points[j].y < topPos || points[j].x > rightPos || points[j].y > bottomPos) {
+                        l = true;
+                    }
+                    if (l) {
+                        if (0 < pointsacc[j]) {
+                            (pointsacc[j] = 0);
+                        }
+                        pointsacc[j] -= 1;
+                    }
+                }
+                f += pointsacc[j];
+                0 > f && (f = 0);
+                f = this.isAgitated ? (19 * f + this.size) / 20 : (12 * f + this.size) / 13;
+                points[j].size = (e + m + 8 * f) / 10;
+                e = 2 * Math.PI / numpoints;
+                m = this.points[j].size;
+                this.isVirus && 0 == j % 2 && (m += 5);
+                points[j].x = this.x + Math.cos(e * j + isvirus) * m;
+                points[j].y = this.y + Math.sin(e * j + isvirus) * m
+            }
+        },
+        updatePos: function() {
+            if (0 == this.id) return 1;
+            var a;
+            a = (timestamp - this.updateTime) / 120;
+            a = 0 > a ? 0 : 1 < a ? 1 : a;
+            var b = 0 > a ? 0 : 1 < a ? 1 : a;
+            this.getNameSize();
+            if (this.destroyed && 1 <= b) {
+                var c = Cells.indexOf(this); -
+                1 != c && Cells.splice(c, 1)
+            }
+            this.x = a * (this.nx - this.ox) + this.ox;
+            this.y = a * (this.ny - this.oy) + this.oy;
+            this.size = b * (this.nSize - this.oSize) + this.oSize;
+            return b;
+        },
+        shouldRender: function() {
+            if (0 == this.id) {
+                return true
+            } else {
+                return !(this.x + this.size + 40 < nodeX - canvasWidth / 2 / viewZoom || this.y + this.size + 40 < nodeY - canvasHeight / 2 / viewZoom || this.x - this.size - 40 > nodeX + canvasWidth / 2 / viewZoom || this.y - this.size - 40 > nodeY + canvasHeight / 2 / viewZoom);
+            }
+        },
+        getStrokeColor: function() {
+            var r = (~~(parseInt(this.color.substr(1, 2), 16) * 0.9)).toString(16),
+                g = (~~(parseInt(this.color.substr(3, 2), 16) * 0.9)).toString(16),
+                b = (~~(parseInt(this.color.substr(5, 2), 16) * 0.9)).toString(16);
+            if (r.length == 1) r = "0" + r;
+            if (g.length == 1) g = "0" + g;
+            if (b.length == 1) b = "0" + b;
+            return "#" + r + g + b;
+        },
+        drawOneCell: function(ctx) {
+            if (this.shouldRender()) {
+                var b = (0 != this.id && !this.isVirus && !this.isAgitated && smoothRender > viewZoom);
+                if (10 > this.getNumPoints()) b = true;
+                if (this.wasSimpleDrawing && !b)
+                    for (var c = 0; c < this.points.length; c++) this.points[c].size = this.size;
+                var bigPointSize = this.size;
+                if(!this.wasSimpleDrawing) {
+                    for (var c = 0; c < this.points.length; c++) bigPointSize = Math.max(this.points[c].size, bigPointSize);
+                }
+                this.wasSimpleDrawing = b;
+                ctx.save();
+                this.drawTime = timestamp;
+                c = this.updatePos();
+                this.destroyed && (ctx.globalAlpha *= 1 - c);
+                ctx.lineWidth = 10;
+                ctx.lineCap = "round";
+                ctx.lineJoin = this.isVirus ? "miter" : "round";
+                if (showColor) {
+                    ctx.fillStyle = "#FFFFFF";
+                    ctx.strokeStyle = "#AAAAAA";
+                } else {
+                    ctx.fillStyle = this.color;
+                    if (b) ctx.strokeStyle = this.getStrokeColor();
+                    else ctx.strokeStyle = this.color;
+                }
+				ctx.beginPath();
+                if (b) {
+                    var lw = this.size * 0.03;
+                    ctx.lineWidth = lw;
+                    ctx.arc(this.x, this.y, this.size - lw * 0.5 + 5, 0, 2 * Math.PI, false);
+                    ctx.stroke();
+                } else {
+                    this.movePoints();
+                    ctx.beginPath();
+                    var d = this.getNumPoints();
+                    ctx.moveTo(this.points[0].x, this.points[0].y);
+                    for (c = 1; c <= d; ++c) {
+                        var e = c % d;
+                        ctx.lineTo(this.points[e].x, this.points[e].y); //Draw circle of cell
+                    }
+                }
+                ctx.closePath();
+                var skinName = this.name.toLowerCase();
+
+                // Load Premium skin if we have one set
+                if (typeof this._skin != 'undefined' && this._skin != '') {
+                    if (this._skin[0] == '%') {
+                        skinName = this._skin.substring(1);
+                    }
+                }
+
+                if (showSkin && skinName != '' && -1 != knownNameDict.indexOf(skinName)) {
+                    if (!skins.hasOwnProperty(skinName)) {
+                        skins[skinName] = new Image;
+                        skins[skinName].src = SKIN_URL + skinName + '.png';
+                    }
+                    if (0 != skins[skinName].width && skins[skinName].complete) {
+                        c = skins[skinName];
+                    } else {
+                        c = null;
+                    }
+                } else {
+                    c = null;
+                }
+                b || ctx.stroke();
+                ctx.fill(); //Draw cell content
+                if (c) {
+                    ctx.save();
+                    ctx.clip();
+                    //Draw skin
+                    ctx.drawImage(c, this.x - bigPointSize, this.y - bigPointSize, 2 * bigPointSize, 2 * bigPointSize);
+                    ctx.restore();
+                }
+                if ((showColor || 15 < this.size) && !b) {
+                    ctx.strokeStyle = '#000000';
+                    ctx.globalAlpha *= .1;
+                    ctx.stroke();
+                }
+                ctx.globalAlpha = 1; 
+                c = -1 != playerCells.indexOf(this);
+                var ncache;
+                //draw name
+                if (0 != this.id) {
+                    var x = ~~this.x,
+                        y = ~~this.y,
+                        nz = this.getNameSize(),
+                        ratio = Math.ceil(10 * viewZoom) * 0.1,
+                        ratD = 1 / ratio;
+                    if ((showName || c) && this.name && this.nameCache && (null == e || -1 == knownNameDict_noDisp.indexOf(skinName))) {
+                        ncache = this.nameCache;
+                        ncache.setValue(this.name);
+                        ncache.setSize(nz);
+                        ncache.setScale(ratio);
+                        var rnchache = ncache.render(),
+                            m = ~~(rnchache.width * ratD),
+                            h = ~~(rnchache.height * ratD);
+                        ctx.drawImage(rnchache, x - ~~(m * 0.5), y - ~~(h * 0.5), m, h);
+                        b += rnchache.height * 0.5 * ratio + 4;
+                    }
+
+                    //draw mass
+                    if (showMass && (c || 0 == playerCells.length && (!this.isVirus || this.isAgitated) && 20 < this.size)) {
+                        var m = ~~(this.size * this.size * 0.01);
+                        c = this.sizeCache;
+                        c.setValue(m);
+                        c.setScale(ratio);
+                        e = c.render();
+                        m = ~~(e.width * ratD);
+                        h = ~~(e.height * ratD);
+                        var g = this.name ? y + ~~(h * 0.7) : y - ~~(h * 0.5);
+                        ctx.drawImage(e, x - ~~(m * 0.5), g, m, h);
+                    }
+                }
+                ctx.restore();
+            }
+        }
+    };
+    UText.prototype = {
+        _value: "",
+        _color: "#000000",
+        _stroke: false,
+        _strokeColor: "#000000",
+        _size: 16,
+        _canvas: null,
+        _ctx: null,
+        _dirty: false,
+        _scale: 1,
+        setSize: function(a) {
+            if (this._size != a) {
+                this._size = a;
+                this._dirty = true;
+            }
+        },
+        setScale: function(a) {
+            if (this._scale != a) {
+                this._scale = a;
+                this._dirty = true;
+            }
+        },
+        setStrokeColor: function(a) {
+            if (this._strokeColor != a) {
+                this._strokeColor = a;
+                this._dirty = true;
+            }
+        },
+        setValue: function(a) {
+            if (a != this._value) {
+                this._value = a;
+                this._dirty = true;
+            }
+        },
+        render: function() {
+            if (null == this._canvas) {
+                this._canvas = document.createElement("canvas");
+                this._ctx = this._canvas.getContext("2d");
+            }
+            if (this._dirty) {
+                this._dirty = false;
+                var canvas = this._canvas,
+                    ctx = this._ctx,
+                    value = this._value,
+                    scale = this._scale,
+                    fontsize = this._size,
+                    font = fontsize + 'px Ubuntu';
+                ctx.font = font;
+                var h = ~~(.2 * fontsize),
+                    wd = fontsize * 0.1;
+                var h2 = h * 0.5;
+                canvas.width = ctx.measureText(value).width * scale + 3;
+                canvas.height = (fontsize + h) * scale;
+                ctx.font = font;
+                ctx.globalAlpha = 1;
+                ctx.lineWidth = wd;
+                ctx.strokeStyle = this._strokeColor;
+                ctx.fillStyle = this._color;
+                ctx.scale(scale, scale);
+                this._stroke && ctx.strokeText(value, 0, fontsize - h2);
+                ctx.fillText(value, 0, fontsize - h2);
+            }
+            return this._canvas
+        },
+        getWidth: function() {
+            return (ctx.measureText(this._value).width + 6);
+        }
+    };
+    Date.now || (Date.now = function() {
+        return (new Date).getTime()
+    });
+    var Quad = {
+        init: function(args) {
+            function Node(x, y, w, h, depth) {
+                this.x = x;
+                this.y = y;
+                this.w = w;
+                this.h = h;
+                this.depth = depth;
+                this.items = [];
+                this.nodes = []
+            }
+
+            var c = args.maxChildren || 2,
+                d = args.maxDepth || 4;
+            Node.prototype = {
+                x: 0,
+                y: 0,
+                w: 0,
+                h: 0,
+                depth: 0,
+                items: null,
+                nodes: null,
+                exists: function(selector) {
+                    for (var i = 0; i < this.items.length; ++i) {
+                        var item = this.items[i];
+                        if (item.x >= selector.x && item.y >= selector.y && item.x < selector.x + selector.w && item.y < selector.y + selector.h) return true
+                    }
+                    if (0 != this.nodes.length) {
+                        var self = this;
+                        return this.findOverlappingNodes(selector, function(dir) {
+                            return self.nodes[dir].exists(selector)
+                        })
+                    }
+                    return false;
+                },
+                retrieve: function(item, callback) {
+                    for (var i = 0; i < this.items.length; ++i) callback(this.items[i]);
+                    if (0 != this.nodes.length) {
+                        var self = this;
+                        this.findOverlappingNodes(item, function(dir) {
+                            self.nodes[dir].retrieve(item, callback)
+                        })
+                    }
+                },
+                insert: function(a) {
+                    if (0 != this.nodes.length) {
+                        this.nodes[this.findInsertNode(a)].insert(a);
+                    } else {
+                        if (this.items.length >= c && this.depth < d) {
+                            this.devide();
+                            this.nodes[this.findInsertNode(a)].insert(a);
+                        } else {
+                            this.items.push(a);
+                        }
+                    }
+                },
+                findInsertNode: function(a) {
+                    return a.x < this.x + this.w / 2 ? a.y < this.y + this.h / 2 ? 0 : 2 : a.y < this.y + this.h / 2 ? 1 : 3
+                },
+                findOverlappingNodes: function(a, b) {
+                    return a.x < this.x + this.w / 2 && (a.y < this.y + this.h / 2 && b(0) || a.y >= this.y + this.h / 2 && b(2)) || a.x >= this.x + this.w / 2 && (a.y < this.y + this.h / 2 && b(1) || a.y >= this.y + this.h / 2 && b(3)) ? true : false
+                },
+                devide: function() {
+                    var a = this.depth + 1,
+                        c = this.w / 2,
+                        d = this.h / 2;
+                    this.nodes.push(new Node(this.x, this.y, c, d, a));
+                    this.nodes.push(new Node(this.x + c, this.y, c, d, a));
+                    this.nodes.push(new Node(this.x, this.y + d, c, d, a));
+                    this.nodes.push(new Node(this.x + c, this.y + d, c, d, a));
+                    a = this.items;
+                    this.items = [];
+                    for (c = 0; c < a.length; c++) this.insert(a[c])
+                },
+                clear: function() {
+                    for (var a = 0; a < this.nodes.length; a++) this.nodes[a].clear();
+                    this.items.length = 0;
+                    this.nodes.length = 0
+                }
+            };
+            var internalSelector = {
+                x: 0,
+                y: 0,
+                w: 0,
+                h: 0
+            };
+            return {
+                root: new Node(args.minX, args.minY, args.maxX - args.minX, args.maxY - args.minY, 0),
+                insert: function(a) {
+                    this.root.insert(a)
+                },
+                retrieve: function(a, b) {
+                    this.root.retrieve(a, b)
+                },
+                retrieve2: function(a, b, c, d, callback) {
+                    internalSelector.x = a;
+                    internalSelector.y = b;
+                    internalSelector.w = c;
+                    internalSelector.h = d;
+                    this.root.retrieve(internalSelector, callback)
+                },
+                exists: function(a) {
+                    return this.root.exists(a)
+                },
+                clear: function() {
+                    this.root.clear()
+                }
+            }
+        }
+    };
+    wjQuery(function() {
+        function renderFavicon() {
+            if (0 < playerCells.length) {
+                redCell.color = playerCells[0].color;
+                redCell.setName(playerCells[0].name);
+            }
+            ctx.clearRect(0, 0, 32, 32);
+            ctx.save();
+            ctx.translate(16, 16);
+            ctx.scale(.4, .4);
+            redCell.drawOneCell(ctx);
+            ctx.restore();
+            var favicon = document.getElementById("favicon"),
+                oldfavicon = favicon.cloneNode(true);
+            oldfavicon.setAttribute("href", favCanvas.toDataURL("image/png"));
+            favicon.parentNode.replaceChild(oldfavicon, favicon)
+        }
+
+        var redCell = new Cell(0, 0, 0, 32, "#ED1C24", ""),
+            favCanvas = document.createElement("canvas");
+        favCanvas.width = 32;
+        favCanvas.height = 32;
+        var ctx = favCanvas.getContext("2d");
+        renderFavicon();
+
+        // Causes stuttering..
+        //setInterval(renderFavicon, 1E3);
+
+        setInterval(drawChatBoard, 1E3);
+    });
+    wHandle.onload = gameLoop
 })(window, window.jQuery);
