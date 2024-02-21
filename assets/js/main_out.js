@@ -252,8 +252,8 @@
             score: NaN,
             maxScore: 0
         }),
-        ws = null,
-        WS_URL = null,
+        ws = "192.168.20.6",
+        WS_URL = "192.168.20.6",
         isConnected = 0,
         disconnectDelay = 1000,
         syncUpdStamp = Date.now(),
