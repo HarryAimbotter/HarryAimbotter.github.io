@@ -252,8 +252,8 @@
             score: NaN,
             maxScore: 0
         }),
-        ws = "https://harryaimbotter.github.io/",
-        WS_URL = "https://harryaimbotter.github.io/",
+        ws = null,
+        WS_URL = null,
         isConnected = 0,
         disconnectDelay = 1000,
         syncUpdStamp = Date.now(),
